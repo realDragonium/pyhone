@@ -36,13 +36,11 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Parse output format
     let output_format = OutputFormat::from_str(&args.format)
         .ok_or_else(|| anyhow::anyhow!("Invalid output format: {}", args.format))?;
 
     let output_formatter = OutputFormatter::new(output_format);
 
-    // Load configuration
     let config = if args.config.exists() {
         Config::from_file(&args.config)
             .context("Failed to load configuration file")?
@@ -58,7 +56,6 @@ fn main() -> Result<()> {
     let mut total_violations = 0;
     let mut total_files = 0;
 
-    // Process each file
     for file_path in &args.files {
         if !file_path.exists() {
             eprintln!("Warning: File not found: {}", file_path.display());
@@ -73,16 +70,13 @@ fn main() -> Result<()> {
         total_files += 1;
 
         let violations = if args.check {
-            // Check mode: just report violations
             formatter.check_file(file_path)
                 .with_context(|| format!("Failed to check file: {}", file_path.display()))?
         } else {
-            // Format mode: apply fixes
             formatter.format_file(file_path)
                 .with_context(|| format!("Failed to format file: {}", file_path.display()))?
         };
 
-        // Output violations
         if !violations.is_empty() {
             let output_lines = output_formatter.format_violations(file_path, &violations);
             for line in output_lines {
@@ -92,10 +86,8 @@ fn main() -> Result<()> {
         }
     }
 
-    // Print summary
     output_formatter.print_summary(total_files, total_violations);
 
-    // Exit with error code if violations found in check mode
     if args.check && total_violations > 0 {
         std::process::exit(1);
     }

@@ -1,7 +1,6 @@
 use crate::rules::Violation;
 use std::path::Path;
 
-/// Output format for violations
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputFormat {
     Human,
@@ -18,7 +17,6 @@ impl OutputFormat {
     }
 }
 
-/// Format violations for output
 pub struct OutputFormatter {
     format: OutputFormat,
 }
@@ -28,7 +26,6 @@ impl OutputFormatter {
         Self { format }
     }
 
-    /// Format violations for the specified output format
     pub fn format_violations(&self, file_path: &Path, violations: &[Violation]) -> Vec<String> {
         match self.format {
             OutputFormat::Human => self.format_human(file_path, violations),
@@ -36,7 +33,6 @@ impl OutputFormatter {
         }
     }
 
-    /// Format violations for human-readable terminal output
     fn format_human(&self, file_path: &Path, violations: &[Violation]) -> Vec<String> {
         let mut lines = Vec::new();
 
@@ -56,7 +52,6 @@ impl OutputFormatter {
         lines
     }
 
-    /// Format violations for GitHub Actions annotations
     fn format_github(&self, file_path: &Path, violations: &[Violation]) -> Vec<String> {
         violations
             .iter()
@@ -73,7 +68,6 @@ impl OutputFormatter {
             .collect()
     }
 
-    /// Print a summary of violations
     pub fn print_summary(&self, total_files: usize, total_violations: usize) {
         if self.format == OutputFormat::Human {
             println!("\n{} file(s) checked, {} violation(s) found", total_files, total_violations);

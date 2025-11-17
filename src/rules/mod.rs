@@ -2,7 +2,6 @@ pub mod multiline_spacing;
 
 use rustpython_parser::ast::Mod;
 
-/// Represents a formatting violation found by a rule
 #[derive(Debug, Clone)]
 pub struct Violation {
     pub line: usize,
@@ -11,19 +10,12 @@ pub struct Violation {
     pub rule_name: String,
 }
 
-/// Trait that all formatting rules must implement
 pub trait FormattingRule {
-    /// Returns the name of the rule
     fn name(&self) -> &str;
-
-    /// Returns a description of what the rule does
     fn description(&self) -> &str;
-
-    /// Apply the rule to source code and return violations
     fn apply(&self, source: &str, ast: &Mod) -> anyhow::Result<Vec<Violation>>;
 }
 
-/// Registry of all available formatting rules
 pub struct RuleRegistry {
     rules: Vec<Box<dyn FormattingRule>>,
 }

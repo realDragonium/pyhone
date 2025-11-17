@@ -3,21 +3,18 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-/// Configuration for the pyhone formatter
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
     pub rules: RulesConfig,
 }
 
-/// Configuration for all rules
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct RulesConfig {
     #[serde(rename = "multiline-spacing", default)]
     pub multiline_spacing: MultilineSpacingConfig,
 }
 
-/// Configuration for the multiline-spacing rule
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MultilineSpacingConfig {
     #[serde(default = "default_enabled")]
@@ -44,7 +41,6 @@ impl Default for MultilineSpacingConfig {
 }
 
 impl Config {
-    /// Load configuration from a TOML file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path.as_ref())
             .with_context(|| format!("Failed to read config file: {:?}", path.as_ref()))?;
@@ -53,7 +49,6 @@ impl Config {
             .context("Failed to parse TOML configuration")
     }
 
-    /// Create a default configuration
     pub fn default() -> Self {
         Self {
             rules: RulesConfig::default(),

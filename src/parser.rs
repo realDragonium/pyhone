@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use rustpython_parser::ast::Mod;
 
-/// Parse Python source code into an AST
 pub fn parse_python(source: &str) -> Result<Mod> {
     rustpython_parser::parse(source, rustpython_parser::Mode::Module, "<string>")
         .context("Failed to parse Python source code")
