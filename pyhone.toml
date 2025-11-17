@@ -1,0 +1,10 @@
+# Pyhone Configuration File
+# A Python code formatter with custom formatting rules
+
+[rules.multiline-spacing]
+# Enable/disable the multiline-spacing rule
+enabled = true
+
+# Minimum number of lines for a statement to be considered "multi-line"
+# Default: 3
+min_lines = 3
