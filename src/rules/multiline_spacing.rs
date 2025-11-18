@@ -74,10 +74,6 @@ impl FormattingRule for MultilineSpacingRule {
         "multiline-spacing"
     }
 
-    fn description(&self) -> &str {
-        "Ensures multi-line statements have blank lines before and after them"
-    }
-
     fn apply(&self, source: &str, ast: &Mod) -> Result<Vec<Violation>> {
         let mut violations = Vec::new();
 

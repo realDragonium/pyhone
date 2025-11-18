@@ -5,14 +5,7 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FormatMode {
-    Check,
-    Format,
-}
-
 pub struct Formatter {
-    config: Config,
     registry: RuleRegistry,
 }
 
@@ -25,7 +18,7 @@ impl Formatter {
             registry.register(Box::new(rule));
         }
 
-        Self { config, registry }
+        Self { registry }
     }
 
     pub fn check_file<P: AsRef<Path>>(&self, path: P) -> Result<Vec<Violation>> {
@@ -85,10 +78,8 @@ impl Formatter {
                 if line_index < lines.len() {
                     lines.insert(line_index, "");
                 }
-            } else {
-                if line_index < lines.len() {
-                    lines.insert(line_index + 1, "");
-                }
+            } else if line_index < lines.len() {
+                lines.insert(line_index + 1, "");
             }
         }
 

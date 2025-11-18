@@ -12,7 +12,6 @@ pub struct Violation {
 
 pub trait FormattingRule {
     fn name(&self) -> &str;
-    fn description(&self) -> &str;
     fn apply(&self, source: &str, ast: &Mod) -> anyhow::Result<Vec<Violation>>;
 }
 
