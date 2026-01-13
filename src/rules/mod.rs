@@ -37,7 +37,7 @@ impl RuleRegistry {
 impl Default for RuleRegistry {
     fn default() -> Self {
         let mut registry = Self::new();
-        registry.register(Box::new(import_hoisting::ImportHoistingRule::default()));
+        registry.register(Box::new(import_hoisting::ImportHoistingRule));
         registry.register(Box::new(multiline_spacing::MultilineSpacingRule::default()));
         registry
     }

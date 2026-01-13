@@ -22,7 +22,7 @@ impl ImportHoistingRule {
         source: &str,
         statements: &[Stmt],
         violations: &mut Vec<Violation>,
-        scope_name: &str,
+        _scope_name: &str,
     ) {
         for stmt in statements {
             match stmt {
@@ -132,9 +132,8 @@ impl ImportHoistingRule {
                 Stmt::Try(try_stmt) => {
                     self.check_conditional_imports(source, &try_stmt.body, func_name, violations);
                     for handler in &try_stmt.handlers {
-                        if let rustpython_parser::ast::ExceptHandler::ExceptHandler(h) = handler {
-                            self.check_conditional_imports(source, &h.body, func_name, violations);
-                        }
+                        let rustpython_parser::ast::ExceptHandler::ExceptHandler(h) = handler;
+                        self.check_conditional_imports(source, &h.body, func_name, violations);
                     }
                     self.check_conditional_imports(source, &try_stmt.orelse, func_name, violations);
                     self.check_conditional_imports(source, &try_stmt.finalbody, func_name, violations);
@@ -198,7 +197,7 @@ impl ImportHoistingRule {
                     });
                 }
                 _ => {
-                    self.check_function_body(source, &[stmt.clone()], func_name, violations);
+                    self.check_function_body(source, std::slice::from_ref(stmt), func_name, violations);
                 }
             }
         }
