@@ -13,6 +13,8 @@ pub struct Config {
 pub struct RulesConfig {
     #[serde(rename = "multiline-spacing", default)]
     pub multiline_spacing: MultilineSpacingConfig,
+    #[serde(rename = "import-hoisting", default)]
+    pub import_hoisting: ImportHoistingConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -36,6 +38,20 @@ impl Default for MultilineSpacingConfig {
         Self {
             enabled: default_enabled(),
             min_lines: default_min_lines(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ImportHoistingConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+impl Default for ImportHoistingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_enabled(),
         }
     }
 }
