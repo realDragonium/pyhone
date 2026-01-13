@@ -249,7 +249,7 @@ mod tests {
         let violations = rule.apply(source, &ast).unwrap();
 
         assert_eq!(violations.len(), 1);
-        assert!(violations[0].message.contains("import"));
+        assert!(violations[0].message.contains("Import"));
         assert!(violations[0].message.contains("foo"));
     }
 
