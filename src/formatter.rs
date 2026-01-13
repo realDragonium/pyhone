@@ -1,6 +1,9 @@
 use crate::config::Config;
 use crate::parser::parse_python;
-use crate::rules::{multiline_spacing::MultilineSpacingRule, RuleRegistry, Violation};
+use crate::rules::{
+    import_hoisting::ImportHoistingRule, multiline_spacing::MultilineSpacingRule, RuleRegistry,
+    Violation,
+};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -12,6 +15,10 @@ pub struct Formatter {
 impl Formatter {
     pub fn new(config: Config) -> Self {
         let mut registry = RuleRegistry::new();
+
+        if config.rules.import_hoisting.enabled {
+            registry.register(Box::new(ImportHoistingRule::new()));
+        }
 
         if config.rules.multiline_spacing.enabled {
             let rule = MultilineSpacingRule::new(config.rules.multiline_spacing.min_lines);

@@ -1,6 +1,11 @@
 # Pyhone Configuration File
 # A Python code formatter with custom formatting rules
 
+[rules.import-hoisting]
+# Enable/disable the import-hoisting rule
+# When enabled, reports imports inside functions that should be moved to the top of the file
+enabled = true
+
 [rules.multiline-spacing]
 # Enable/disable the multiline-spacing rule
 enabled = true
