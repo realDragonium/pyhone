@@ -23,6 +23,76 @@ impl MultilineSpacingRule {
         line_count >= self.min_lines
     }
 
+    fn is_compound_statement(&self, stmt: &Stmt) -> bool {
+        matches!(
+            stmt,
+            Stmt::If(_)
+                | Stmt::For(_)
+                | Stmt::AsyncFor(_)
+                | Stmt::While(_)
+                | Stmt::With(_)
+                | Stmt::AsyncWith(_)
+                | Stmt::Try(_)
+                | Stmt::FunctionDef(_)
+                | Stmt::AsyncFunctionDef(_)
+                | Stmt::ClassDef(_)
+                | Stmt::Match(_)
+        )
+    }
+
+    fn has_multiline_header(&self, source: &str, stmt: &Stmt) -> bool {
+        if !self.is_compound_statement(stmt) {
+            return false;
+        }
+
+        let range = stmt.range();
+        let start = range.start().to_usize();
+        let end = range.end().to_usize();
+        let stmt_source = &source[start..end];
+
+        // Find the first colon followed by newline (end of header)
+        // We need to be careful about colons inside strings/parentheses
+        let mut paren_depth: i32 = 0;
+        let mut bracket_depth: i32 = 0;
+        let mut in_string = false;
+        let mut string_char = ' ';
+        let mut prev_char = ' ';
+        let mut colon_pos = None;
+
+        for (i, ch) in stmt_source.char_indices() {
+            if in_string {
+                if ch == string_char && prev_char != '\\' {
+                    in_string = false;
+                }
+            } else {
+                match ch {
+                    '"' | '\'' => {
+                        in_string = true;
+                        string_char = ch;
+                    }
+                    '(' => paren_depth += 1,
+                    ')' => paren_depth = paren_depth.saturating_sub(1),
+                    '[' => bracket_depth += 1,
+                    ']' => bracket_depth = bracket_depth.saturating_sub(1),
+                    ':' if paren_depth == 0 && bracket_depth == 0 => {
+                        colon_pos = Some(i);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            prev_char = ch;
+        }
+
+        if let Some(pos) = colon_pos {
+            let header = &stmt_source[..=pos];
+            let header_lines = header.lines().count();
+            header_lines >= self.min_lines
+        } else {
+            false
+        }
+    }
+
     fn get_line_number(&self, source: &str, offset: usize) -> usize {
         if offset == 0 {
             return 1;
@@ -123,7 +193,11 @@ impl FormattingRule for MultilineSpacingRule {
                 false
             };
 
-            if !is_last && !next_is_multiline && !self.has_blank_line_after(source, end_line) {
+            // Skip blank-after check for compound statements with multiline headers
+            // (the body follows at a different indentation level)
+            let has_multiline_header = self.has_multiline_header(source, stmt);
+
+            if !is_last && !next_is_multiline && !has_multiline_header && !self.has_blank_line_after(source, end_line) {
                 violations.push(Violation {
                     line: end_line,
                     column: 1,
@@ -193,5 +267,120 @@ z = 3
         let violations = rule.apply(source, &ast).unwrap();
 
         assert_eq!(violations.len(), 0);
+    }
+
+    #[test]
+    fn test_multiline_if_header_no_blank_after() {
+        // Multiline if header should need blank before, but NOT after
+        let source = r#"x = 1
+
+if (
+    a
+    and b
+):
+    pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Should not require blank after multiline if header");
+    }
+
+    #[test]
+    fn test_multiline_if_header_needs_blank_before() {
+        // Multiline if header still needs blank before
+        let source = r#"x = 1
+if (
+    a
+    and b
+):
+    pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 1, "Should require blank before multiline if header");
+        assert!(violations[0].message.contains("before"));
+    }
+
+    #[test]
+    fn test_multiline_function_header_no_blank_after() {
+        // Multiline function header should need blank before, but NOT after
+        let source = r#"y = 2
+
+def foo(
+    arg1,
+    arg2,
+):
+    pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Should not require blank after multiline function header");
+    }
+
+    #[test]
+    fn test_multiline_class_header_no_blank_after() {
+        // Multiline class header should need blank before, but NOT after
+        let source = r#"x = 1
+
+class MyClass(
+    BaseOne,
+    BaseTwo,
+):
+    pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Should not require blank after multiline class header");
+    }
+
+    #[test]
+    fn test_multiline_with_header_no_blank_after() {
+        // Multiline with header should need blank before, but NOT after
+        let source = r#"x = 1
+
+with (
+    open('a') as f1,
+    open('b') as f2,
+):
+    pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Should not require blank after multiline with header");
+    }
+
+    #[test]
+    fn test_single_line_header_still_needs_blank_after() {
+        // Single-line header function that spans multiple lines overall still needs blank after
+        let source = r#"x = 1
+
+def foo():
+    a = 1
+    b = 2
+    c = 3
+y = 2
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 1, "Should require blank after function with single-line header");
+        assert!(violations[0].message.contains("after"));
     }
 }
