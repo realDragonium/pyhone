@@ -14,7 +14,7 @@ use std::path::PathBuf;
 /// Pyhone - A Python code formatter with custom formatting rules
 #[derive(Parser, Debug)]
 #[command(name = "pyhone")]
-#[command(about = "A Python code formatter that complements Ruff", long_about = None)]
+#[command(version, about = "A Python code formatter that complements Ruff", long_about = None)]
 struct Args {
     /// Python files to format
     #[arg(required = true)]
