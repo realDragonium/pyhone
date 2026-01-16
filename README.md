@@ -1,5 +1,7 @@
 # Pyhone
 
+[![CI](https://github.com/realDragonium/pyhone/actions/workflows/ci.yml/badge.svg)](https://github.com/realDragonium/pyhone/actions/workflows/ci.yml)
+
 A Python code formatter with custom formatting rules that complement Ruff. Pyhone focuses on stylistic rules that go beyond what typical formatters handle.
 
 ## Features
