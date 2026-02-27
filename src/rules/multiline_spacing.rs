@@ -13,6 +13,11 @@ impl MultilineSpacingRule {
     }
 
     fn is_multiline(&self, source: &str, stmt: &Stmt) -> bool {
+        // Imports are handled by ruff — ignore them regardless of line count
+        if matches!(stmt, Stmt::Import(_) | Stmt::ImportFrom(_)) {
+            return false;
+        }
+
         let range = stmt.range();
         let start = range.start().to_usize();
         let end = range.end().to_usize();
@@ -425,6 +430,26 @@ with (
         let violations = rule.apply(source, &ast).unwrap();
 
         assert_eq!(violations.len(), 0, "Should not require blank after multiline with header");
+    }
+
+    #[test]
+    fn test_multiline_import_ignored() {
+        // Multi-line imports are handled by ruff and should never be flagged
+        let source = r#"from some.module import (
+    ClassA,
+    ClassB,
+    ClassC,
+)
+from other.module import SomeClass
+
+x = 1
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Multi-line imports should not be flagged");
     }
 
     #[test]
