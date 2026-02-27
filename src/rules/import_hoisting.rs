@@ -1,6 +1,6 @@
 use crate::rules::{FixKind, FormattingRule, Violation};
 use anyhow::Result;
-use rustpython_parser::ast::{Mod, Ranged, Stmt};
+use rustpython_parser::ast::{Expr, ExceptHandler, Mod, Ranged, Stmt};
 
 #[derive(Debug)]
 pub struct ImportHoistingRule;
@@ -8,6 +8,19 @@ pub struct ImportHoistingRule;
 impl ImportHoistingRule {
     pub fn new() -> Self {
         Self
+    }
+
+    /// Returns true if any except handler catches ImportError or ModuleNotFoundError,
+    /// indicating this try block is the standard pattern for optional imports.
+    fn is_optional_import_block(&self, handlers: &[rustpython_parser::ast::ExceptHandler]) -> bool {
+        handlers.iter().any(|h| {
+            let ExceptHandler::ExceptHandler(handler) = h;
+            handler.type_.as_ref().map_or(false, |t| {
+                matches!(t.as_ref(), Expr::Name(n) if
+                    n.id.as_str() == "ImportError" || n.id.as_str() == "ModuleNotFoundError"
+                )
+            })
+        })
     }
 
     fn get_line_number(&self, source: &str, offset: usize) -> usize {
@@ -132,9 +145,13 @@ impl ImportHoistingRule {
                     self.check_conditional_imports(source, &with_stmt.body, func_name, violations);
                 }
                 Stmt::Try(try_stmt) => {
-                    self.check_conditional_imports(source, &try_stmt.body, func_name, violations);
+                    // A try/except ImportError (or ModuleNotFoundError) is the standard
+                    // pattern for optional imports — don't flag them
+                    if !self.is_optional_import_block(&try_stmt.handlers) {
+                        self.check_conditional_imports(source, &try_stmt.body, func_name, violations);
+                    }
                     for handler in &try_stmt.handlers {
-                        let rustpython_parser::ast::ExceptHandler::ExceptHandler(h) = handler;
+                        let ExceptHandler::ExceptHandler(h) = handler;
                         self.check_conditional_imports(source, &h.body, func_name, violations);
                     }
                     self.check_conditional_imports(source, &try_stmt.orelse, func_name, violations);
@@ -199,6 +216,17 @@ impl ImportHoistingRule {
                         rule_name: self.name().to_string(),
                         fix_kind: FixKind::None,
                     });
+                }
+                Stmt::Try(try_stmt) => {
+                    if !self.is_optional_import_block(&try_stmt.handlers) {
+                        self.check_conditional_imports(source, &try_stmt.body, func_name, violations);
+                    }
+                    for handler in &try_stmt.handlers {
+                        let ExceptHandler::ExceptHandler(h) = handler;
+                        self.check_conditional_imports(source, &h.body, func_name, violations);
+                    }
+                    self.check_conditional_imports(source, &try_stmt.orelse, func_name, violations);
+                    self.check_conditional_imports(source, &try_stmt.finalbody, func_name, violations);
                 }
                 _ => {
                     self.check_function_body(source, std::slice::from_ref(stmt), func_name, violations);
@@ -322,11 +350,47 @@ def foo():
     }
 
     #[test]
-    fn test_import_in_try_except() {
+    fn test_import_in_try_except_import_error_allowed() {
+        // try/except ImportError is the standard pattern for optional imports — not flagged
         let source = r#"def safe_import():
     try:
         import optional_module
     except ImportError:
+        pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = ImportHoistingRule::new();
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0);
+    }
+
+    #[test]
+    fn test_import_in_try_except_module_not_found_allowed() {
+        // ModuleNotFoundError is a subclass of ImportError — also allowed
+        let source = r#"def safe_import():
+    try:
+        import optional_module
+        tracer = optional_module.tracer()
+    except ModuleNotFoundError:
+        tracer = None
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = ImportHoistingRule::new();
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0);
+    }
+
+    #[test]
+    fn test_import_in_try_except_other_exception_flagged() {
+        // A try/except catching something other than ImportError is still flagged
+        let source = r#"def process():
+    try:
+        import some_module
+    except Exception:
         pass
 "#;
 
