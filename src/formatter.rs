@@ -66,27 +66,51 @@ impl Formatter {
     }
 
     fn apply_fixes(&self, source: &str, violations: &[Violation]) -> Result<String> {
-        let mut lines: Vec<&str> = source.lines().collect();
-        let mut insertions: Vec<(usize, bool)> = Vec::new();
+        use crate::rules::FixKind;
+
+        enum Op {
+            Insert(usize, bool), // (line_index 0-based, is_before)
+            Remove(usize),       // line_index 0-based
+        }
+
+        let mut ops: Vec<Op> = Vec::new();
 
         for violation in violations {
-            if violation.message.contains("should have a blank line before it") {
-                insertions.push((violation.line - 1, true));
-            } else if violation.message.contains("should have a blank line after it") {
-                insertions.push((violation.line - 1, false));
+            match violation.fix_kind {
+                FixKind::InsertBlankBefore => ops.push(Op::Insert(violation.line - 1, true)),
+                FixKind::InsertBlankAfter => ops.push(Op::Insert(violation.line - 1, false)),
+                FixKind::RemoveBlankBefore if violation.line >= 2 => {
+                    ops.push(Op::Remove(violation.line - 2));
+                }
+                _ => {}
             }
         }
 
-        insertions.sort_by(|a, b| b.0.cmp(&a.0));
-        insertions.dedup();
+        // Process from bottom to top so earlier line indices stay valid
+        ops.sort_by(|a, b| {
+            let la = match a { Op::Insert(l, _) | Op::Remove(l) => *l };
+            let lb = match b { Op::Insert(l, _) | Op::Remove(l) => *l };
+            lb.cmp(&la)
+        });
 
-        for (line_index, is_before) in insertions {
-            if is_before {
-                if line_index < lines.len() {
-                    lines.insert(line_index, "");
+        let mut lines: Vec<&str> = source.lines().collect();
+
+        for op in ops {
+            match op {
+                Op::Insert(idx, is_before) => {
+                    if is_before {
+                        if idx < lines.len() {
+                            lines.insert(idx, "");
+                        }
+                    } else if idx < lines.len() {
+                        lines.insert(idx + 1, "");
+                    }
                 }
-            } else if line_index < lines.len() {
-                lines.insert(line_index + 1, "");
+                Op::Remove(idx) => {
+                    if idx < lines.len() && lines[idx].trim().is_empty() {
+                        lines.remove(idx);
+                    }
+                }
             }
         }
 

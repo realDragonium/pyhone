@@ -3,12 +3,21 @@ pub mod multiline_spacing;
 
 use rustpython_parser::ast::Mod;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FixKind {
+    InsertBlankBefore,
+    InsertBlankAfter,
+    RemoveBlankBefore,
+    None,
+}
+
 #[derive(Debug, Clone)]
 pub struct Violation {
     pub line: usize,
     pub column: usize,
     pub message: String,
     pub rule_name: String,
+    pub fix_kind: FixKind,
 }
 
 pub trait FormattingRule {

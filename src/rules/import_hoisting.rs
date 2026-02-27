@@ -1,4 +1,4 @@
-use crate::rules::{FormattingRule, Violation};
+use crate::rules::{FixKind, FormattingRule, Violation};
 use anyhow::Result;
 use rustpython_parser::ast::{Mod, Ranged, Stmt};
 
@@ -74,6 +74,7 @@ impl ImportHoistingRule {
                             func_name
                         ),
                         rule_name: self.name().to_string(),
+                        fix_kind: FixKind::None,
                     });
                 }
                 Stmt::ImportFrom(import_from) => {
@@ -96,6 +97,7 @@ impl ImportHoistingRule {
                             func_name
                         ),
                         rule_name: self.name().to_string(),
+                        fix_kind: FixKind::None,
                     });
                 }
                 Stmt::FunctionDef(nested_func) => {
@@ -172,6 +174,7 @@ impl ImportHoistingRule {
                             func_name
                         ),
                         rule_name: self.name().to_string(),
+                        fix_kind: FixKind::None,
                     });
                 }
                 Stmt::ImportFrom(import_from) => {
@@ -194,6 +197,7 @@ impl ImportHoistingRule {
                             func_name
                         ),
                         rule_name: self.name().to_string(),
+                        fix_kind: FixKind::None,
                     });
                 }
                 _ => {

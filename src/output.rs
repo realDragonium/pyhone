@@ -78,7 +78,7 @@ impl OutputFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::Violation;
+    use crate::rules::{FixKind, Violation};
 
     #[test]
     fn test_format_human() {
@@ -89,6 +89,7 @@ mod tests {
                 column: 5,
                 message: "Missing blank line".to_string(),
                 rule_name: "multiline-spacing".to_string(),
+                fix_kind: FixKind::InsertBlankBefore,
             },
         ];
 
@@ -107,6 +108,7 @@ mod tests {
                 column: 5,
                 message: "Missing blank line".to_string(),
                 rule_name: "multiline-spacing".to_string(),
+                fix_kind: FixKind::InsertBlankBefore,
             },
         ];
 

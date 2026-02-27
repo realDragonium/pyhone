@@ -1,4 +1,4 @@
-use crate::rules::{FormattingRule, Violation};
+use crate::rules::{FixKind, FormattingRule, Violation};
 use anyhow::Result;
 use rustpython_parser::ast::{ExceptHandler, Mod, Ranged, Stmt};
 
@@ -164,9 +164,36 @@ impl Default for MultilineSpacingRule {
 
 impl MultilineSpacingRule {
     fn check_statement_list(&self, source: &str, statements: &[Stmt], violations: &mut Vec<Violation>) {
+        self.check_statement_list_inner(source, statements, violations, false);
+    }
+
+    fn check_class_body(&self, source: &str, statements: &[Stmt], violations: &mut Vec<Violation>) {
+        self.check_statement_list_inner(source, statements, violations, true);
+    }
+
+    fn check_statement_list_inner(&self, source: &str, statements: &[Stmt], violations: &mut Vec<Violation>, in_class_body: bool) {
         for (i, stmt) in statements.iter().enumerate() {
             // Recurse into nested bodies regardless of whether this statement is multiline
             self.recurse_into_stmt(source, stmt, violations);
+
+            // Class-level Assign/AnnAssign are attribute definitions — skip spacing checks.
+            // If a blank line exists between two consecutive class-level assignments, flag it
+            // for removal.
+            if in_class_body && matches!(stmt, Stmt::Assign(_) | Stmt::AnnAssign(_)) {
+                if i > 0 && matches!(statements[i - 1], Stmt::Assign(_) | Stmt::AnnAssign(_)) {
+                    let start_line = self.get_line_number(source, stmt.range().start().to_usize());
+                    if self.has_blank_line_before(source, start_line) {
+                        violations.push(Violation {
+                            line: start_line,
+                            column: 1,
+                            message: "Class-level assignment should not have a blank line before it".to_string(),
+                            rule_name: self.name().to_string(),
+                            fix_kind: FixKind::RemoveBlankBefore,
+                        });
+                    }
+                }
+                continue;
+            }
 
             if !self.is_multiline(source, stmt) {
                 continue;
@@ -185,6 +212,16 @@ impl MultilineSpacingRule {
             let prev_is_multiline = prev_stmt.map_or(false, |p| self.is_multiline(source, p));
             let prev_is_loop_setup = prev_stmt.map_or(false, |p| self.is_loop_setup(source, p, stmt));
 
+            if prev_is_loop_setup && self.has_blank_line_before(source, start_line) {
+                violations.push(Violation {
+                    line: start_line,
+                    column: 1,
+                    message: "Loop setup assignment should not have a blank line before the loop".to_string(),
+                    rule_name: self.name().to_string(),
+                    fix_kind: FixKind::RemoveBlankBefore,
+                });
+            }
+
             if !is_first && !prev_is_multiline && !prev_is_loop_setup && !self.has_blank_line_before(source, start_line) {
                 violations.push(Violation {
                     line: start_line,
@@ -194,6 +231,7 @@ impl MultilineSpacingRule {
                         line_count
                     ),
                     rule_name: self.name().to_string(),
+                    fix_kind: FixKind::InsertBlankBefore,
                 });
             }
 
@@ -212,6 +250,7 @@ impl MultilineSpacingRule {
                         line_count
                     ),
                     rule_name: self.name().to_string(),
+                    fix_kind: FixKind::InsertBlankAfter,
                 });
             }
         }
@@ -230,7 +269,7 @@ impl MultilineSpacingRule {
         match stmt {
             Stmt::FunctionDef(s) => self.check_statement_list(source, &s.body, violations),
             Stmt::AsyncFunctionDef(s) => self.check_statement_list(source, &s.body, violations),
-            Stmt::ClassDef(s) => self.check_statement_list(source, &s.body, violations),
+            Stmt::ClassDef(s) => self.check_class_body(source, &s.body, violations),
             Stmt::If(s) => {
                 self.check_statement_list(source, &s.body, violations);
                 self.check_statement_list(source, &s.orelse, violations);
@@ -440,6 +479,27 @@ with (
     }
 
     #[test]
+    fn test_loop_setup_blank_removed() {
+        // A blank line between a loop setup assignment and the loop should be flagged for removal
+        let source = r#"def collect(items):
+    results: list[str] = []
+
+    for item in items:
+        results.append(item)
+
+    return results
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
+        assert!(violations[0].message.contains("Loop setup"));
+    }
+
+    #[test]
     fn test_loop_setup_no_blank_needed() {
         // A single-line assignment directly before a loop is treated as
         // loop setup — no blank line required between them
@@ -474,6 +534,68 @@ with (
         let violations = rule.apply(source, &ast).unwrap();
 
         assert_eq!(violations.len(), 0, "Annotated accumulator assignment before loop should not require blank line");
+    }
+
+    #[test]
+    fn test_class_body_blank_between_assignments_flagged() {
+        // A blank line between two consecutive class-level assignments should be flagged for removal
+        let source = r#"class Status(Enum):
+    PENDING = "pending"
+
+    DONE = "done"
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
+        assert!(violations[0].message.contains("should not have a blank line"));
+    }
+
+    #[test]
+    fn test_class_body_assignments_ignored() {
+        // Assign/AnnAssign directly inside a class body should not be flagged —
+        // this covers Enum members, dataclass fields, Pydantic models, etc.
+        let source = r#"class Status(Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+
+
+class MyModel(BaseModel):
+    name: str
+    age: int
+    tags: list[str] = []
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Class-level assignments should not require blank lines between them");
+    }
+
+    #[test]
+    fn test_class_body_methods_still_checked() {
+        // Methods inside a class ARE still subject to spacing rules
+        let source = r#"class MyClass:
+    x = 1
+    def foo(
+        self,
+        arg,
+    ):
+        pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        // foo() is multiline and follows x = 1 (an assignment, but curr is FunctionDef not loop)
+        // so a blank is still required before foo()
+        assert!(!violations.is_empty(), "Multiline methods in a class should still be checked");
     }
 
     #[test]
@@ -570,7 +692,6 @@ def foo(
         // Same structure but with blank lines everywhere needed — should have no violations
         let source = r#"def process(items):
     result = {}
-
     for i, item in enumerate(items):
         key = item
 
