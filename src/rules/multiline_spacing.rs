@@ -1,6 +1,6 @@
 use crate::rules::{FormattingRule, Violation};
 use anyhow::Result;
-use rustpython_parser::ast::{Mod, Ranged, Stmt};
+use rustpython_parser::ast::{ExceptHandler, Mod, Ranged, Stmt};
 
 #[derive(Debug)]
 pub struct MultilineSpacingRule {
@@ -100,6 +100,24 @@ impl MultilineSpacingRule {
         source[..offset].matches('\n').count() + 1
     }
 
+    /// For decorated statements, the AST range starts at `def`/`class`, not the decorator.
+    /// This returns the line of the first decorator if one exists, so blank lines are
+    /// inserted before the decorator rather than between it and the definition.
+    fn get_effective_start_line(&self, source: &str, stmt: &Stmt) -> usize {
+        let decorator_offset = match stmt {
+            Stmt::FunctionDef(s) => s.decorator_list.first().map(|d| d.range().start().to_usize()),
+            Stmt::AsyncFunctionDef(s) => s.decorator_list.first().map(|d| d.range().start().to_usize()),
+            Stmt::ClassDef(s) => s.decorator_list.first().map(|d| d.range().start().to_usize()),
+            _ => None,
+        };
+
+        if let Some(offset) = decorator_offset {
+            self.get_line_number(source, offset)
+        } else {
+            self.get_line_number(source, stmt.range().start().to_usize())
+        }
+    }
+
     fn has_blank_line_before(&self, source: &str, line_num: usize) -> bool {
         if line_num <= 1 {
             return true;
@@ -139,22 +157,12 @@ impl Default for MultilineSpacingRule {
     }
 }
 
-impl FormattingRule for MultilineSpacingRule {
-    fn name(&self) -> &str {
-        "multiline-spacing"
-    }
-
-    fn apply(&self, source: &str, ast: &Mod) -> Result<Vec<Violation>> {
-        let mut violations = Vec::new();
-
-        let statements = match ast {
-            Mod::Module(module) => &module.body,
-            Mod::Interactive(interactive) => &interactive.body,
-            Mod::Expression(_) => return Ok(violations),
-            Mod::FunctionType(_) => return Ok(violations),
-        };
-
+impl MultilineSpacingRule {
+    fn check_statement_list(&self, source: &str, statements: &[Stmt], violations: &mut Vec<Violation>) {
         for (i, stmt) in statements.iter().enumerate() {
+            // Recurse into nested bodies regardless of whether this statement is multiline
+            self.recurse_into_stmt(source, stmt, violations);
+
             if !self.is_multiline(source, stmt) {
                 continue;
             }
@@ -163,7 +171,7 @@ impl FormattingRule for MultilineSpacingRule {
             let start = range.start().to_usize();
             let end = range.end().to_usize();
 
-            let start_line = self.get_line_number(source, start);
+            let start_line = self.get_effective_start_line(source, stmt);
             let end_line = self.get_line_number(source, end);
             let line_count = source[start..end].lines().count();
 
@@ -187,17 +195,12 @@ impl FormattingRule for MultilineSpacingRule {
             }
 
             let is_last = i == statements.len() - 1;
-            let next_is_multiline = if i < statements.len() - 1 {
-                self.is_multiline(source, &statements[i + 1])
-            } else {
-                false
-            };
 
             // Skip blank-after check for compound statements with multiline headers
             // (the body follows at a different indentation level)
             let has_multiline_header = self.has_multiline_header(source, stmt);
 
-            if !is_last && !next_is_multiline && !has_multiline_header && !self.has_blank_line_after(source, end_line) {
+            if !is_last && !has_multiline_header && !self.has_blank_line_after(source, end_line) {
                 violations.push(Violation {
                     line: end_line,
                     column: 1,
@@ -209,6 +212,66 @@ impl FormattingRule for MultilineSpacingRule {
                 });
             }
         }
+    }
+
+    fn recurse_into_stmt(&self, source: &str, stmt: &Stmt, violations: &mut Vec<Violation>) {
+        match stmt {
+            Stmt::FunctionDef(s) => self.check_statement_list(source, &s.body, violations),
+            Stmt::AsyncFunctionDef(s) => self.check_statement_list(source, &s.body, violations),
+            Stmt::ClassDef(s) => self.check_statement_list(source, &s.body, violations),
+            Stmt::If(s) => {
+                self.check_statement_list(source, &s.body, violations);
+                self.check_statement_list(source, &s.orelse, violations);
+            }
+            Stmt::For(s) => {
+                self.check_statement_list(source, &s.body, violations);
+                self.check_statement_list(source, &s.orelse, violations);
+            }
+            Stmt::AsyncFor(s) => {
+                self.check_statement_list(source, &s.body, violations);
+                self.check_statement_list(source, &s.orelse, violations);
+            }
+            Stmt::While(s) => {
+                self.check_statement_list(source, &s.body, violations);
+                self.check_statement_list(source, &s.orelse, violations);
+            }
+            Stmt::With(s) => self.check_statement_list(source, &s.body, violations),
+            Stmt::AsyncWith(s) => self.check_statement_list(source, &s.body, violations),
+            Stmt::Try(s) => {
+                self.check_statement_list(source, &s.body, violations);
+                for handler in &s.handlers {
+                    let ExceptHandler::ExceptHandler(h) = handler;
+                    self.check_statement_list(source, &h.body, violations);
+                }
+                self.check_statement_list(source, &s.orelse, violations);
+                self.check_statement_list(source, &s.finalbody, violations);
+            }
+            Stmt::Match(s) => {
+                for case in &s.cases {
+                    self.check_statement_list(source, &case.body, violations);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl FormattingRule for MultilineSpacingRule {
+    fn name(&self) -> &str {
+        "multiline-spacing"
+    }
+
+    fn apply(&self, source: &str, ast: &Mod) -> Result<Vec<Violation>> {
+        let mut violations = Vec::new();
+
+        let statements = match ast {
+            Mod::Module(module) => &module.body,
+            Mod::Interactive(interactive) => &interactive.body,
+            Mod::Expression(_) => return Ok(violations),
+            Mod::FunctionType(_) => return Ok(violations),
+        };
+
+        self.check_statement_list(source, statements, &mut violations);
 
         Ok(violations)
     }
@@ -362,6 +425,102 @@ with (
         let violations = rule.apply(source, &ast).unwrap();
 
         assert_eq!(violations.len(), 0, "Should not require blank after multiline with header");
+    }
+
+    #[test]
+    fn test_no_blank_between_decorator_and_def() {
+        // Blank line should go BEFORE the decorator, not between decorator and def
+        let source = r#"x = 1
+@classmethod
+def foo(
+    cls,
+    arg,
+):
+    pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        // Should flag that a blank is needed before @classmethod (line 2), not between decorator and def
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 2, "Violation should point to the decorator line");
+        assert!(violations[0].message.contains("before"));
+    }
+
+    #[test]
+    fn test_blank_before_decorator_is_sufficient() {
+        // A blank line before the decorator — no violations
+        let source = r#"x = 1
+
+@classmethod
+def foo(
+    cls,
+    arg,
+):
+    pass
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Blank before decorator should satisfy the rule");
+    }
+
+    #[test]
+    fn test_nested_multiline_inside_function_body() {
+        // A multiline assignment inside a for loop inside a function should be detected
+        let source = r#"def process(items):
+    result = {}
+    for i, item in enumerate(items):
+        key = item
+        value = build(
+            item,
+            index=i,
+            extra=None,
+        )
+        result[i] = value
+    return result
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert!(!violations.is_empty(), "Should detect violations inside nested scopes");
+        let before = violations.iter().any(|v| v.message.contains("before"));
+        let after = violations.iter().any(|v| v.message.contains("after"));
+        assert!(before, "Should require blank line before the multiline assignment");
+        assert!(after, "Should require blank line after the multiline assignment");
+    }
+
+    #[test]
+    fn test_nested_multiline_with_spacing() {
+        // Same structure but with blank lines everywhere needed — should have no violations
+        let source = r#"def process(items):
+    result = {}
+
+    for i, item in enumerate(items):
+        key = item
+
+        value = build(
+            item,
+            index=i,
+            extra=None,
+        )
+
+        result[i] = value
+
+    return result
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(3);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "No violations when nested multiline has surrounding blank lines");
     }
 
     #[test]
