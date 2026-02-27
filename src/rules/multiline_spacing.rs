@@ -697,6 +697,57 @@ with (
     }
 
     #[test]
+    fn test_multiline_assignment_before_loop_blank_kept() {
+        // If the assignment itself is multiline, it is NOT treated as loop setup —
+        // the blank between it and the for loop should be preserved
+        let source = r#"def collect(items):
+    results = build(
+        items,
+        extra=True,
+    )
+
+    for item in results:
+        process(item)
+
+    return results
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert!(
+            violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
+            "Blank before for loop should not be removed when assignment is multiline"
+        );
+    }
+
+    #[test]
+    fn test_multiline_assignment_before_if_blank_kept() {
+        // Same rule for if guard setup — multiline assignment keeps the blank
+        let source = r#"def process(dto):
+    created_at = compute(
+        dto.value,
+        default=None,
+    )
+
+    if created_at is None:
+        created_at = now()
+
+    return created_at
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert!(
+            violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
+            "Blank before if should not be removed when assignment is multiline"
+        );
+    }
+
+    #[test]
     fn test_loop_setup_blank_removed() {
         // A blank line between a loop setup assignment and the loop should be flagged for removal
         let source = r#"def collect(items):
