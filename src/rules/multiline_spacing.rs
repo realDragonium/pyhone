@@ -287,13 +287,50 @@ impl MultilineSpacingRule {
 
         let Some(var_name) = self.extract_assign_target_name(prev) else { return false };
 
+        // Case 1: variable appears in the if condition (guard check)
+        //   created_at = value.created_at
+        //   if created_at is None: ...
         let test_range = if_stmt.test.range();
         let condition_src = &source[test_range.start().to_usize()..test_range.end().to_usize()];
-
-        // Check that var_name appears as a whole word in the condition
-        condition_src
+        let in_condition = condition_src
             .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .any(|word| word == var_name)
+            .any(|word| word == var_name);
+
+        if in_condition {
+            return true;
+        }
+
+        // Case 2: default assignment + single-statement override in if body
+        //   Accepted with or without an else, as long as every branch assigns
+        //   to the same variable.
+        //
+        //   Without else:
+        //     created_by_mask = None
+        //     if dto.something:
+        //         created_by_mask = compute(...)
+        //
+        //   With else:
+        //     created_by_mask = None
+        //     if dto.something:
+        //         created_by_mask = compute(...)
+        //     else:
+        //         created_by_mask = other_value()
+        if if_stmt.body.len() == 1 {
+            if let Some(body_var) = self.extract_assign_target_name(&if_stmt.body[0]) {
+                if body_var == var_name {
+                    // No else, or else is also a single assignment to the same variable
+                    let else_ok = if_stmt.orelse.is_empty()
+                        || (if_stmt.orelse.len() == 1
+                            && self.extract_assign_target_name(&if_stmt.orelse[0])
+                                == Some(var_name));
+                    if else_ok {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     /// Extract the simple variable name from an Assign or AnnAssign target, if it's a plain Name.
@@ -549,6 +586,72 @@ with (
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
         assert!(violations[0].message.contains("Guard assignment"));
+    }
+
+    #[test]
+    fn test_if_default_override_blank_removed() {
+        // Default assignment followed by a single-statement if that overrides it
+        let source = r#"def process(dto):
+    created_by_mask = None
+
+    if dto.created_by:
+        created_by_mask = get_mask(dto.created_by)
+
+    return created_by_mask
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
+    }
+
+    #[test]
+    fn test_if_else_default_override_blank_removed() {
+        // if/else where both branches assign to the same variable — blank should be removed
+        let source = r#"def process(dto):
+    created_by_mask = None
+
+    if dto.created_by:
+        created_by_mask = get_mask(dto.created_by)
+    else:
+        created_by_mask = default_mask()
+
+    return created_by_mask
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
+    }
+
+    #[test]
+    fn test_if_else_different_variables_kept() {
+        // if/else branches assign to different variables — leave the blank alone
+        let source = r#"def process(dto):
+    created_by_mask = None
+
+    if dto.created_by:
+        created_by_mask = get_mask(dto.created_by)
+    else:
+        other_mask = default_mask()
+
+    return created_by_mask
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert!(
+            violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
+            "if/else with different variables should not have its blank removed"
+        );
     }
 
     #[test]
