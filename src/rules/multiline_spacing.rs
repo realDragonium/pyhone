@@ -1,6 +1,6 @@
 use crate::rules::{FixKind, FormattingRule, Violation};
 use anyhow::Result;
-use rustpython_parser::ast::{ExceptHandler, Mod, Ranged, Stmt};
+use rustpython_parser::ast::{Expr, ExceptHandler, Mod, Ranged, Stmt};
 
 #[derive(Debug)]
 pub struct MultilineSpacingRule {
@@ -211,18 +211,25 @@ impl MultilineSpacingRule {
             let prev_stmt = if i > 0 { Some(&statements[i - 1]) } else { None };
             let prev_is_multiline = prev_stmt.map_or(false, |p| self.is_multiline(source, p));
             let prev_is_loop_setup = prev_stmt.map_or(false, |p| self.is_loop_setup(source, p, stmt));
+            let prev_is_if_guard_setup = prev_stmt.map_or(false, |p| self.is_if_guard_setup(source, p, stmt));
+            let prev_is_paired_setup = prev_is_loop_setup || prev_is_if_guard_setup;
 
-            if prev_is_loop_setup && self.has_blank_line_before(source, start_line) {
+            if prev_is_paired_setup && self.has_blank_line_before(source, start_line) {
+                let msg = if prev_is_loop_setup {
+                    "Loop setup assignment should not have a blank line before the loop"
+                } else {
+                    "Guard assignment should not have a blank line before the if statement"
+                };
                 violations.push(Violation {
                     line: start_line,
                     column: 1,
-                    message: "Loop setup assignment should not have a blank line before the loop".to_string(),
+                    message: msg.to_string(),
                     rule_name: self.name().to_string(),
                     fix_kind: FixKind::RemoveBlankBefore,
                 });
             }
 
-            if !is_first && !prev_is_multiline && !prev_is_loop_setup && !self.has_blank_line_before(source, start_line) {
+            if !is_first && !prev_is_multiline && !prev_is_paired_setup && !self.has_blank_line_before(source, start_line) {
                 violations.push(Violation {
                     line: start_line,
                     column: 1,
@@ -263,6 +270,51 @@ impl MultilineSpacingRule {
             && !self.is_multiline(source, prev);
         let curr_is_loop = matches!(curr, Stmt::For(_) | Stmt::AsyncFor(_) | Stmt::While(_));
         prev_is_single_assignment && curr_is_loop
+    }
+
+    /// A single-line assignment immediately before an if statement that references
+    /// the assigned variable in its condition is treated as a guard setup and
+    /// doesn't need a blank line.
+    fn is_if_guard_setup(&self, source: &str, prev: &Stmt, curr: &Stmt) -> bool {
+        let prev_is_single_assignment = matches!(prev, Stmt::Assign(_) | Stmt::AnnAssign(_))
+            && !self.is_multiline(source, prev);
+
+        if !prev_is_single_assignment {
+            return false;
+        }
+
+        let Stmt::If(if_stmt) = curr else { return false };
+
+        let Some(var_name) = self.extract_assign_target_name(prev) else { return false };
+
+        let test_range = if_stmt.test.range();
+        let condition_src = &source[test_range.start().to_usize()..test_range.end().to_usize()];
+
+        // Check that var_name appears as a whole word in the condition
+        condition_src
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|word| word == var_name)
+    }
+
+    /// Extract the simple variable name from an Assign or AnnAssign target, if it's a plain Name.
+    fn extract_assign_target_name<'a>(&self, stmt: &'a Stmt) -> Option<&'a str> {
+        match stmt {
+            Stmt::Assign(a) => {
+                if let Some(target) = a.targets.first() {
+                    if let Expr::Name(name) = target {
+                        return Some(name.id.as_str());
+                    }
+                }
+                None
+            }
+            Stmt::AnnAssign(a) => {
+                if let Expr::Name(name) = &*a.target {
+                    return Some(name.id.as_str());
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     fn recurse_into_stmt(&self, source: &str, stmt: &Stmt, violations: &mut Vec<Violation>) {
@@ -476,6 +528,49 @@ with (
         let violations = rule.apply(source, &ast).unwrap();
 
         assert_eq!(violations.len(), 0, "Should not require blank after multiline with header");
+    }
+
+    #[test]
+    fn test_if_guard_setup_blank_removed() {
+        // A blank line between an assignment and an if that checks the variable should be removed
+        let source = r#"def process(value):
+    created_at = value.created_at
+
+    if created_at is None:
+        created_at = now()
+
+    return created_at
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
+        assert!(violations[0].message.contains("Guard assignment"));
+    }
+
+    #[test]
+    fn test_if_guard_unrelated_variable_kept() {
+        // A blank line before an if that does NOT use the assigned variable should NOT be removed
+        let source = r#"def process(value):
+    result = compute(value)
+
+    if some_flag:
+        do_something()
+
+    return result
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert!(
+            violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
+            "Blank before unrelated if should not be removed"
+        );
     }
 
     #[test]
