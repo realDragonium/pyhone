@@ -123,6 +123,23 @@ impl MultilineSpacingRule {
         }
     }
 
+    /// Walk backwards past any comment lines immediately preceding `start_line`.
+    /// Returns the line number of the first comment in the block, so that blank-line
+    /// checks and fixes target the comment rather than the statement itself.
+    fn comment_adjusted_start_line(&self, source: &str, start_line: usize) -> usize {
+        let lines: Vec<&str> = source.lines().collect();
+        let mut line = start_line;
+        while line >= 2 {
+            let prev = lines[line - 2]; // 0-indexed line before current
+            if prev.trim().starts_with('#') {
+                line -= 1;
+            } else {
+                break;
+            }
+        }
+        line
+    }
+
     fn has_blank_line_before(&self, source: &str, line_num: usize) -> bool {
         if line_num <= 1 {
             return true;
@@ -204,6 +221,9 @@ impl MultilineSpacingRule {
             let end = range.end().to_usize();
 
             let start_line = self.get_effective_start_line(source, stmt);
+            // Walk back past any comments that are attached to this statement so that
+            // blank-line checks and fixes target the comment line, not the statement.
+            let effective_start_line = self.comment_adjusted_start_line(source, start_line);
             let end_line = self.get_line_number(source, end);
             let line_count = source[start..end].lines().count();
 
@@ -214,14 +234,14 @@ impl MultilineSpacingRule {
             let prev_is_if_guard_setup = prev_stmt.map_or(false, |p| self.is_if_guard_setup(source, p, stmt));
             let prev_is_paired_setup = prev_is_loop_setup || prev_is_if_guard_setup;
 
-            if prev_is_paired_setup && self.has_blank_line_before(source, start_line) {
+            if prev_is_paired_setup && self.has_blank_line_before(source, effective_start_line) {
                 let msg = if prev_is_loop_setup {
                     "Loop setup assignment should not have a blank line before the loop"
                 } else {
                     "Guard assignment should not have a blank line before the if statement"
                 };
                 violations.push(Violation {
-                    line: start_line,
+                    line: effective_start_line,
                     column: 1,
                     message: msg.to_string(),
                     rule_name: self.name().to_string(),
@@ -229,9 +249,9 @@ impl MultilineSpacingRule {
                 });
             }
 
-            if !is_first && !prev_is_multiline && !prev_is_paired_setup && !self.has_blank_line_before(source, start_line) {
+            if !is_first && !prev_is_multiline && !prev_is_paired_setup && !self.has_blank_line_before(source, effective_start_line) {
                 violations.push(Violation {
-                    line: start_line,
+                    line: effective_start_line,
                     column: 1,
                     message: format!(
                         "Multi-line statement ({} lines) should have a blank line before it",
@@ -732,6 +752,50 @@ with (
         let violations = rule.apply(source, &ast).unwrap();
 
         assert_eq!(violations.len(), 0, "Annotated accumulator assignment before loop should not require blank line");
+    }
+
+    #[test]
+    fn test_comment_attached_to_multiline_no_blank_needed() {
+        // A comment immediately before a multi-line block is part of that block —
+        // no blank line should be required between the comment and the statement
+        let source = r#"x = 1
+
+# Build the result
+result = some_func(
+    arg1,
+    arg2,
+)
+
+y = 2
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Comment before multiline block should not require extra blank line");
+    }
+
+    #[test]
+    fn test_comment_block_needs_blank_before_comment() {
+        // The blank is required before the comment, not between the comment and the statement
+        let source = r#"x = 1
+# Build the result
+result = some_func(
+    arg1,
+    arg2,
+)
+
+y = 2
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 1);
+        // Violation should point to the comment line (2), not the statement line (3)
+        assert_eq!(violations[0].line, 2, "Violation should point to the comment line");
     }
 
     #[test]
