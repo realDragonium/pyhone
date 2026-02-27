@@ -181,13 +181,11 @@ impl MultilineSpacingRule {
             let line_count = source[start..end].lines().count();
 
             let is_first = i == 0;
-            let prev_is_multiline = if i > 0 {
-                self.is_multiline(source, &statements[i - 1])
-            } else {
-                false
-            };
+            let prev_stmt = if i > 0 { Some(&statements[i - 1]) } else { None };
+            let prev_is_multiline = prev_stmt.map_or(false, |p| self.is_multiline(source, p));
+            let prev_is_loop_setup = prev_stmt.map_or(false, |p| self.is_loop_setup(source, p, stmt));
 
-            if !is_first && !prev_is_multiline && !self.has_blank_line_before(source, start_line) {
+            if !is_first && !prev_is_multiline && !prev_is_loop_setup && !self.has_blank_line_before(source, start_line) {
                 violations.push(Violation {
                     line: start_line,
                     column: 1,
@@ -217,6 +215,15 @@ impl MultilineSpacingRule {
                 });
             }
         }
+    }
+
+    /// A single-line assignment immediately before a for/while loop is treated as
+    /// loop setup (e.g. accumulator initialisation) and doesn't need a blank line.
+    fn is_loop_setup(&self, source: &str, prev: &Stmt, curr: &Stmt) -> bool {
+        let prev_is_single_assignment = matches!(prev, Stmt::Assign(_) | Stmt::AnnAssign(_))
+            && !self.is_multiline(source, prev);
+        let curr_is_loop = matches!(curr, Stmt::For(_) | Stmt::AsyncFor(_) | Stmt::While(_));
+        prev_is_single_assignment && curr_is_loop
     }
 
     fn recurse_into_stmt(&self, source: &str, stmt: &Stmt, violations: &mut Vec<Violation>) {
@@ -430,6 +437,43 @@ with (
         let violations = rule.apply(source, &ast).unwrap();
 
         assert_eq!(violations.len(), 0, "Should not require blank after multiline with header");
+    }
+
+    #[test]
+    fn test_loop_setup_no_blank_needed() {
+        // A single-line assignment directly before a loop is treated as
+        // loop setup — no blank line required between them
+        let source = r#"def collect(items):
+    results = []
+    for item in items:
+        results.append(item)
+
+    return results
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Accumulator assignment before loop should not require blank line");
+    }
+
+    #[test]
+    fn test_loop_setup_annotated_assignment() {
+        // Annotated assignment (e.g. type hint) before a loop is also loop setup
+        let source = r#"def collect(items):
+    results: list[str] = []
+    for item in items:
+        results.append(item)
+
+    return results
+"#;
+
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+
+        assert_eq!(violations.len(), 0, "Annotated accumulator assignment before loop should not require blank line");
     }
 
     #[test]
