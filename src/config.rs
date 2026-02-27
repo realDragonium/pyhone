@@ -30,7 +30,7 @@ fn default_enabled() -> bool {
 }
 
 fn default_min_lines() -> usize {
-    3
+    2
 }
 
 impl Default for MultilineSpacingConfig {
@@ -80,7 +80,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert!(config.rules.multiline_spacing.enabled);
-        assert_eq!(config.rules.multiline_spacing.min_lines, 3);
+        assert_eq!(config.rules.multiline_spacing.min_lines, 2);
     }
 
     #[test]

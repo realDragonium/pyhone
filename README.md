@@ -75,8 +75,8 @@ Create a `pyhone.toml` file in your project root:
 enabled = true
 
 # Minimum number of lines for a statement to be considered "multi-line"
-# Default: 3
-min_lines = 3
+# Default: 2
+min_lines = 2
 ```
 
 ## Rules

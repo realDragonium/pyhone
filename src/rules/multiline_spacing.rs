@@ -153,7 +153,7 @@ impl MultilineSpacingRule {
 
 impl Default for MultilineSpacingRule {
     fn default() -> Self {
-        Self::new(3)
+        Self::new(2)
     }
 }
 
