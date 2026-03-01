@@ -229,9 +229,9 @@ impl MultilineSpacingRule {
 
             let is_first = i == 0;
             let prev_stmt = if i > 0 { Some(&statements[i - 1]) } else { None };
-            let prev_is_multiline = prev_stmt.map_or(false, |p| self.is_multiline(source, p));
-            let prev_is_loop_setup = prev_stmt.map_or(false, |p| self.is_loop_setup(source, p, stmt));
-            let prev_is_if_guard_setup = prev_stmt.map_or(false, |p| self.is_if_guard_setup(source, p, stmt));
+            let prev_is_multiline = prev_stmt.is_some_and(|p| self.is_multiline(source, p));
+            let prev_is_loop_setup = prev_stmt.is_some_and(|p| self.is_loop_setup(source, p, stmt));
+            let prev_is_if_guard_setup = prev_stmt.is_some_and(|p| self.is_if_guard_setup(source, p, stmt));
             let prev_is_paired_setup = prev_is_loop_setup || prev_is_if_guard_setup;
 
             if prev_is_paired_setup && self.has_blank_line_before(source, effective_start_line) {
@@ -357,10 +357,8 @@ impl MultilineSpacingRule {
     fn extract_assign_target_name<'a>(&self, stmt: &'a Stmt) -> Option<&'a str> {
         match stmt {
             Stmt::Assign(a) => {
-                if let Some(target) = a.targets.first() {
-                    if let Expr::Name(name) = target {
-                        return Some(name.id.as_str());
-                    }
+                if let Some(Expr::Name(name)) = a.targets.first() {
+                    return Some(name.id.as_str());
                 }
                 None
             }

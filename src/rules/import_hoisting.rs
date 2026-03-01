@@ -15,7 +15,7 @@ impl ImportHoistingRule {
     fn is_optional_import_block(&self, handlers: &[rustpython_parser::ast::ExceptHandler]) -> bool {
         handlers.iter().any(|h| {
             let ExceptHandler::ExceptHandler(handler) = h;
-            handler.type_.as_ref().map_or(false, |t| {
+            handler.type_.as_ref().is_some_and(|t| {
                 matches!(t.as_ref(), Expr::Name(n) if
                     n.id.as_str() == "ImportError" || n.id.as_str() == "ModuleNotFoundError"
                 )
