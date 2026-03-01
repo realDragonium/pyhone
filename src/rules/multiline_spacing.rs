@@ -444,88 +444,48 @@ mod tests {
 
     #[test]
     fn test_multiline_without_spacing() {
-        let source = r#"x = 1
-def foo():
-    a = 1
-    b = 2
-    c = 3
-y = 2
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_without_spacing.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert!(!violations.is_empty());
     }
 
     #[test]
     fn test_multiline_with_spacing() {
-        let source = r#"x = 1
-
-def foo():
-    a = 1
-    b = 2
-    c = 3
-
-y = 2
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_with_spacing.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0);
     }
 
     #[test]
     fn test_single_line_no_spacing_needed() {
-        let source = r#"x = 1
-y = 2
-z = 3
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/single_line_no_spacing_needed.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0);
     }
 
     #[test]
     fn test_multiline_if_header_no_blank_after() {
         // Multiline if header should need blank before, but NOT after
-        let source = r#"x = 1
-
-if (
-    a
-    and b
-):
-    pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_if_header_no_blank_after.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Should not require blank after multiline if header");
     }
 
     #[test]
     fn test_multiline_if_header_needs_blank_before() {
         // Multiline if header still needs blank before
-        let source = r#"x = 1
-if (
-    a
-    and b
-):
-    pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_if_header_needs_blank_before.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1, "Should require blank before multiline if header");
         assert!(violations[0].message.contains("before"));
     }
@@ -533,76 +493,40 @@ if (
     #[test]
     fn test_multiline_function_header_no_blank_after() {
         // Multiline function header should need blank before, but NOT after
-        let source = r#"y = 2
-
-def foo(
-    arg1,
-    arg2,
-):
-    pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_function_header_no_blank_after.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Should not require blank after multiline function header");
     }
 
     #[test]
     fn test_multiline_class_header_no_blank_after() {
         // Multiline class header should need blank before, but NOT after
-        let source = r#"x = 1
-
-class MyClass(
-    BaseOne,
-    BaseTwo,
-):
-    pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_class_header_no_blank_after.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Should not require blank after multiline class header");
     }
 
     #[test]
     fn test_multiline_with_header_no_blank_after() {
         // Multiline with header should need blank before, but NOT after
-        let source = r#"x = 1
-
-with (
-    open('a') as f1,
-    open('b') as f2,
-):
-    pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_with_header_no_blank_after.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Should not require blank after multiline with header");
     }
 
     #[test]
     fn test_if_guard_setup_blank_removed() {
         // A blank line between an assignment and an if that checks the variable should be removed
-        let source = r#"def process(value):
-    created_at = value.created_at
-
-    if created_at is None:
-        created_at = now()
-
-    return created_at
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/if_guard_setup_blank_removed.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
         assert!(violations[0].message.contains("Guard assignment"));
@@ -611,19 +535,10 @@ with (
     #[test]
     fn test_if_default_override_blank_removed() {
         // Default assignment followed by a single-statement if that overrides it
-        let source = r#"def process(dto):
-    created_by_mask = None
-
-    if dto.created_by:
-        created_by_mask = get_mask(dto.created_by)
-
-    return created_by_mask
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/if_default_override_blank_removed.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
     }
@@ -631,21 +546,10 @@ with (
     #[test]
     fn test_if_else_default_override_blank_removed() {
         // if/else where both branches assign to the same variable — blank should be removed
-        let source = r#"def process(dto):
-    created_by_mask = None
-
-    if dto.created_by:
-        created_by_mask = get_mask(dto.created_by)
-    else:
-        created_by_mask = default_mask()
-
-    return created_by_mask
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/if_else_default_override_blank_removed.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
     }
@@ -653,21 +557,10 @@ with (
     #[test]
     fn test_if_else_different_variables_kept() {
         // if/else branches assign to different variables — leave the blank alone
-        let source = r#"def process(dto):
-    created_by_mask = None
-
-    if dto.created_by:
-        created_by_mask = get_mask(dto.created_by)
-    else:
-        other_mask = default_mask()
-
-    return created_by_mask
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/if_else_different_variables_kept.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert!(
             violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
             "if/else with different variables should not have its blank removed"
@@ -677,19 +570,10 @@ with (
     #[test]
     fn test_if_guard_unrelated_variable_kept() {
         // A blank line before an if that does NOT use the assigned variable should NOT be removed
-        let source = r#"def process(value):
-    result = compute(value)
-
-    if some_flag:
-        do_something()
-
-    return result
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/if_guard_unrelated_variable_kept.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert!(
             violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
             "Blank before unrelated if should not be removed"
@@ -700,22 +584,10 @@ with (
     fn test_multiline_assignment_before_loop_blank_kept() {
         // If the assignment itself is multiline, it is NOT treated as loop setup —
         // the blank between it and the for loop should be preserved
-        let source = r#"def collect(items):
-    results = build(
-        items,
-        extra=True,
-    )
-
-    for item in results:
-        process(item)
-
-    return results
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_assignment_before_loop_blank_kept.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert!(
             violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
             "Blank before for loop should not be removed when assignment is multiline"
@@ -725,22 +597,10 @@ with (
     #[test]
     fn test_multiline_assignment_before_if_blank_kept() {
         // Same rule for if guard setup — multiline assignment keeps the blank
-        let source = r#"def process(dto):
-    created_at = compute(
-        dto.value,
-        default=None,
-    )
-
-    if created_at is None:
-        created_at = now()
-
-    return created_at
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_assignment_before_if_blank_kept.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert!(
             violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
             "Blank before if should not be removed when assignment is multiline"
@@ -750,19 +610,10 @@ with (
     #[test]
     fn test_loop_setup_blank_removed() {
         // A blank line between a loop setup assignment and the loop should be flagged for removal
-        let source = r#"def collect(items):
-    results: list[str] = []
-
-    for item in items:
-        results.append(item)
-
-    return results
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/loop_setup_blank_removed.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
         assert!(violations[0].message.contains("Loop setup"));
@@ -772,36 +623,20 @@ with (
     fn test_loop_setup_no_blank_needed() {
         // A single-line assignment directly before a loop is treated as
         // loop setup — no blank line required between them
-        let source = r#"def collect(items):
-    results = []
-    for item in items:
-        results.append(item)
-
-    return results
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/loop_setup_no_blank_needed.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Accumulator assignment before loop should not require blank line");
     }
 
     #[test]
     fn test_loop_setup_annotated_assignment() {
         // Annotated assignment (e.g. type hint) before a loop is also loop setup
-        let source = r#"def collect(items):
-    results: list[str] = []
-    for item in items:
-        results.append(item)
-
-    return results
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/loop_setup_annotated_assignment.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Annotated accumulator assignment before loop should not require blank line");
     }
 
@@ -809,41 +644,20 @@ with (
     fn test_comment_attached_to_multiline_no_blank_needed() {
         // A comment immediately before a multi-line block is part of that block —
         // no blank line should be required between the comment and the statement
-        let source = r#"x = 1
-
-# Build the result
-result = some_func(
-    arg1,
-    arg2,
-)
-
-y = 2
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/comment_attached_to_multiline_no_blank_needed.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Comment before multiline block should not require extra blank line");
     }
 
     #[test]
     fn test_comment_block_needs_blank_before_comment() {
         // The blank is required before the comment, not between the comment and the statement
-        let source = r#"x = 1
-# Build the result
-result = some_func(
-    arg1,
-    arg2,
-)
-
-y = 2
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/comment_block_needs_blank_before_comment.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         // Violation should point to the comment line (2), not the statement line (3)
         assert_eq!(violations[0].line, 2, "Violation should point to the comment line");
@@ -852,16 +666,10 @@ y = 2
     #[test]
     fn test_class_body_blank_between_assignments_flagged() {
         // A blank line between two consecutive class-level assignments should be flagged for removal
-        let source = r#"class Status(Enum):
-    PENDING = "pending"
-
-    DONE = "done"
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/class_body_blank_between_assignments_flagged.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
         assert!(violations[0].message.contains("should not have a blank line"));
@@ -871,41 +679,20 @@ y = 2
     fn test_class_body_assignments_ignored() {
         // Assign/AnnAssign directly inside a class body should not be flagged —
         // this covers Enum members, dataclass fields, Pydantic models, etc.
-        let source = r#"class Status(Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    DONE = "done"
-
-
-class MyModel(BaseModel):
-    name: str
-    age: int
-    tags: list[str] = []
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/class_body_assignments_ignored.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Class-level assignments should not require blank lines between them");
     }
 
     #[test]
     fn test_class_body_methods_still_checked() {
         // Methods inside a class ARE still subject to spacing rules
-        let source = r#"class MyClass:
-    x = 1
-    def foo(
-        self,
-        arg,
-    ):
-        pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/class_body_methods_still_checked.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         // foo() is multiline and follows x = 1 (an assignment, but curr is FunctionDef not loop)
         // so a blank is still required before foo()
         assert!(!violations.is_empty(), "Multiline methods in a class should still be checked");
@@ -914,39 +701,20 @@ class MyModel(BaseModel):
     #[test]
     fn test_multiline_import_ignored() {
         // Multi-line imports are handled by ruff and should never be flagged
-        let source = r#"from some.module import (
-    ClassA,
-    ClassB,
-    ClassC,
-)
-from other.module import SomeClass
-
-x = 1
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/multiline_import_ignored.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(2);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Multi-line imports should not be flagged");
     }
 
     #[test]
     fn test_no_blank_between_decorator_and_def() {
         // Blank line should go BEFORE the decorator, not between decorator and def
-        let source = r#"x = 1
-@classmethod
-def foo(
-    cls,
-    arg,
-):
-    pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/no_blank_between_decorator_and_def.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         // Should flag that a blank is needed before @classmethod (line 2), not between decorator and def
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].line, 2, "Violation should point to the decorator line");
@@ -956,43 +724,20 @@ def foo(
     #[test]
     fn test_blank_before_decorator_is_sufficient() {
         // A blank line before the decorator — no violations
-        let source = r#"x = 1
-
-@classmethod
-def foo(
-    cls,
-    arg,
-):
-    pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/blank_before_decorator_is_sufficient.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "Blank before decorator should satisfy the rule");
     }
 
     #[test]
     fn test_nested_multiline_inside_function_body() {
         // A multiline assignment inside a for loop inside a function should be detected
-        let source = r#"def process(items):
-    result = {}
-    for i, item in enumerate(items):
-        key = item
-        value = build(
-            item,
-            index=i,
-            extra=None,
-        )
-        result[i] = value
-    return result
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/nested_multiline_inside_function_body.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert!(!violations.is_empty(), "Should detect violations inside nested scopes");
         let before = violations.iter().any(|v| v.message.contains("before"));
         let after = violations.iter().any(|v| v.message.contains("after"));
@@ -1003,45 +748,20 @@ def foo(
     #[test]
     fn test_nested_multiline_with_spacing() {
         // Same structure but with blank lines everywhere needed — should have no violations
-        let source = r#"def process(items):
-    result = {}
-    for i, item in enumerate(items):
-        key = item
-
-        value = build(
-            item,
-            index=i,
-            extra=None,
-        )
-
-        result[i] = value
-
-    return result
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/nested_multiline_with_spacing.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0, "No violations when nested multiline has surrounding blank lines");
     }
 
     #[test]
     fn test_single_line_header_still_needs_blank_after() {
         // Single-line header function that spans multiple lines overall still needs blank after
-        let source = r#"x = 1
-
-def foo():
-    a = 1
-    b = 2
-    c = 3
-y = 2
-"#;
-
+        let source = include_str!("../../tests/fixtures/multiline_spacing/single_line_header_still_needs_blank_after.py");
         let ast = parse_python(source).unwrap();
         let rule = MultilineSpacingRule::new(3);
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1, "Should require blank after function with single-line header");
         assert!(violations[0].message.contains("after"));
     }

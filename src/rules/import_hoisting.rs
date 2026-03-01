@@ -270,15 +270,10 @@ mod tests {
 
     #[test]
     fn test_import_inside_function() {
-        let source = r#"def foo():
-    import os
-    print(os.getcwd())
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/import_inside_function.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert!(violations[0].message.contains("Import"));
         assert!(violations[0].message.contains("foo"));
@@ -286,15 +281,10 @@ mod tests {
 
     #[test]
     fn test_import_from_inside_function() {
-        let source = r#"def bar():
-    from pathlib import Path
-    return Path.cwd()
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/import_from_inside_function.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert!(violations[0].message.contains("pathlib"));
         assert!(violations[0].message.contains("bar"));
@@ -302,133 +292,78 @@ mod tests {
 
     #[test]
     fn test_module_level_import_ok() {
-        let source = r#"import os
-from pathlib import Path
-
-def foo():
-    print(os.getcwd())
-    return Path.cwd()
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/module_level_import_ok.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0);
     }
 
     #[test]
     fn test_nested_function_import() {
-        let source = r#"def outer():
-    def inner():
-        import json
-        return json.dumps({})
-    return inner()
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/nested_function_import.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert!(violations[0].message.contains("inner"));
     }
 
     #[test]
     fn test_import_in_conditional() {
-        let source = r#"def process():
-    if True:
-        import sys
-        print(sys.version)
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/import_in_conditional.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
     }
 
     #[test]
     fn test_import_in_try_except_import_error_allowed() {
         // try/except ImportError is the standard pattern for optional imports — not flagged
-        let source = r#"def safe_import():
-    try:
-        import optional_module
-    except ImportError:
-        pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/import_in_try_except_import_error_allowed.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0);
     }
 
     #[test]
     fn test_import_in_try_except_module_not_found_allowed() {
         // ModuleNotFoundError is a subclass of ImportError — also allowed
-        let source = r#"def safe_import():
-    try:
-        import optional_module
-        tracer = optional_module.tracer()
-    except ModuleNotFoundError:
-        tracer = None
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/import_in_try_except_module_not_found_allowed.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 0);
     }
 
     #[test]
     fn test_import_in_try_except_other_exception_flagged() {
         // A try/except catching something other than ImportError is still flagged
-        let source = r#"def process():
-    try:
-        import some_module
-    except Exception:
-        pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/import_in_try_except_other_exception_flagged.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
     }
 
     #[test]
     fn test_async_function_import() {
-        let source = r#"async def fetch():
-    import aiohttp
-    async with aiohttp.ClientSession() as session:
-        pass
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/async_function_import.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert!(violations[0].message.contains("fetch"));
     }
 
     #[test]
     fn test_class_method_import() {
-        let source = r#"class MyClass:
-    def method(self):
-        import re
-        return re.match(r'\d+', '123')
-"#;
-
+        let source = include_str!("../../tests/fixtures/import_hoisting/class_method_import.py");
         let ast = parse_python(source).unwrap();
         let rule = ImportHoistingRule::new();
         let violations = rule.apply(source, &ast).unwrap();
-
         assert_eq!(violations.len(), 1);
         assert!(violations[0].message.contains("method"));
     }
