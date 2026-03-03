@@ -80,10 +80,27 @@ jobs:
           name: wheels-macos-${{ matrix.target }}
           path: dist
 
-  release:
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [linux, windows, macos]
+    needs: [linux, windows, macos, sdist]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download all wheels
@@ -97,3 +114,23 @@ jobs:
         with:
           files: wheels/*
           generate_release_notes: true
+
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [linux, windows, macos, sdist]
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      id-token: write
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: PyO3/maturin-action@v1
+        with:
+          command: upload
+          args: --non-interactive --skip-existing dist/*
