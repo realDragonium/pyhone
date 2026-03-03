@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/pyhone/pyhone"
+Repository = "https://github.com/realDragonium/pyhone"
 
 [tool.maturin]
 bindings = "bin"
