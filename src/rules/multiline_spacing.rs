@@ -230,12 +230,10 @@ impl MultilineSpacingRule {
             let is_first = i == 0;
             let prev_stmt = if i > 0 { Some(&statements[i - 1]) } else { None };
             let prev_is_multiline = prev_stmt.is_some_and(|p| self.is_multiline(source, p));
-            let prev_is_loop_setup = prev_stmt.is_some_and(|p| self.is_loop_setup(source, p, stmt));
-            let prev_is_if_guard_setup = prev_stmt.is_some_and(|p| self.is_if_guard_setup(source, p, stmt));
-            let prev_is_paired_setup = prev_is_loop_setup || prev_is_if_guard_setup;
+            let prev_is_paired_setup = prev_stmt.is_some_and(|p| self.is_setup_pair(source, p, stmt));
 
             if prev_is_paired_setup && self.has_blank_line_before(source, effective_start_line) {
-                let msg = if prev_is_loop_setup {
+                let msg = if matches!(stmt, Stmt::For(_) | Stmt::AsyncFor(_) | Stmt::While(_)) {
                     "Loop setup assignment should not have a blank line before the loop"
                 } else {
                     "Guard assignment should not have a blank line before the if statement"
@@ -283,74 +281,71 @@ impl MultilineSpacingRule {
         }
     }
 
-    /// A single-line assignment immediately before a for/while loop is treated as
-    /// loop setup (e.g. accumulator initialisation) and doesn't need a blank line.
-    fn is_loop_setup(&self, source: &str, prev: &Stmt, curr: &Stmt) -> bool {
-        let prev_is_single_assignment = matches!(prev, Stmt::Assign(_) | Stmt::AnnAssign(_))
-            && !self.is_multiline(source, prev);
-        let curr_is_loop = matches!(curr, Stmt::For(_) | Stmt::AsyncFor(_) | Stmt::While(_));
-        prev_is_single_assignment && curr_is_loop
+    /// Returns true if `word` appears as a standalone identifier in `src`.
+    fn source_contains_word(src: &str, word: &str) -> bool {
+        src.split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|w| w == word)
     }
 
-    /// A single-line assignment immediately before an if statement that references
-    /// the assigned variable in its condition is treated as a guard setup and
-    /// doesn't need a blank line.
-    fn is_if_guard_setup(&self, source: &str, prev: &Stmt, curr: &Stmt) -> bool {
-        let prev_is_single_assignment = matches!(prev, Stmt::Assign(_) | Stmt::AnnAssign(_))
-            && !self.is_multiline(source, prev);
-
-        if !prev_is_single_assignment {
+    /// A single-line assignment immediately before a for/while/if that has a
+    /// semantic relationship to it doesn't need a blank line.
+    ///
+    /// For loops: structural — any preceding single-line assignment qualifies
+    /// (covers accumulators, iterables, etc.).
+    ///
+    /// If statements: the assigned variable must relate to the if via one of:
+    ///   1. Variable appears in the condition.
+    ///   2. Default assignment + single-statement override (every branch
+    ///      assigns to the same variable).
+    ///   3. Variable appears in the body (no else — mirrors the loop case).
+    fn is_setup_pair(&self, source: &str, prev: &Stmt, curr: &Stmt) -> bool {
+        if !matches!(prev, Stmt::Assign(_) | Stmt::AnnAssign(_)) || self.is_multiline(source, prev) {
             return false;
         }
 
-        let Stmt::If(if_stmt) = curr else { return false };
+        match curr {
+            Stmt::For(_) | Stmt::AsyncFor(_) | Stmt::While(_) => true,
 
-        let Some(var_name) = self.extract_assign_target_name(prev) else { return false };
+            Stmt::If(if_stmt) => {
+                let Some(var_name) = self.extract_assign_target_name(prev) else {
+                    return false;
+                };
 
-        // Case 1: variable appears in the if condition (guard check)
-        //   created_at = value.created_at
-        //   if created_at is None: ...
-        let test_range = if_stmt.test.range();
-        let condition_src = &source[test_range.start().to_usize()..test_range.end().to_usize()];
-        let in_condition = condition_src
-            .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .any(|word| word == var_name);
+                // Case 1: variable in condition.
+                let test_range = if_stmt.test.range();
+                let condition_src = &source[test_range.start().to_usize()..test_range.end().to_usize()];
+                if Self::source_contains_word(condition_src, var_name) {
+                    return true;
+                }
 
-        if in_condition {
-            return true;
-        }
-
-        // Case 2: default assignment + single-statement override in if body
-        //   Accepted with or without an else, as long as every branch assigns
-        //   to the same variable.
-        //
-        //   Without else:
-        //     created_by_mask = None
-        //     if dto.something:
-        //         created_by_mask = compute(...)
-        //
-        //   With else:
-        //     created_by_mask = None
-        //     if dto.something:
-        //         created_by_mask = compute(...)
-        //     else:
-        //         created_by_mask = other_value()
-        if if_stmt.body.len() == 1 {
-            if let Some(body_var) = self.extract_assign_target_name(&if_stmt.body[0]) {
-                if body_var == var_name {
-                    // No else, or else is also a single assignment to the same variable
-                    let else_ok = if_stmt.orelse.is_empty()
-                        || (if_stmt.orelse.len() == 1
-                            && self.extract_assign_target_name(&if_stmt.orelse[0])
-                                == Some(var_name));
-                    if else_ok {
-                        return true;
+                // Case 2: default assignment + single-statement override in every branch.
+                if if_stmt.body.len() == 1 {
+                    if let Some(body_var) = self.extract_assign_target_name(&if_stmt.body[0]) {
+                        if body_var == var_name {
+                            let else_ok = if_stmt.orelse.is_empty()
+                                || (if_stmt.orelse.len() == 1
+                                    && self.extract_assign_target_name(&if_stmt.orelse[0])
+                                        == Some(var_name));
+                            if else_ok {
+                                return true;
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        false
+                // Case 3: variable appears in the body (no else).
+                if_stmt.orelse.is_empty()
+                    && if_stmt.body.iter().any(|s| {
+                        let r = s.range();
+                        Self::source_contains_word(
+                            &source[r.start().to_usize()..r.end().to_usize()],
+                            var_name,
+                        )
+                    })
+            }
+
+            _ => false,
+        }
     }
 
     /// Extract the simple variable name from an Assign or AnnAssign target, if it's a plain Name.
@@ -590,6 +585,28 @@ mod tests {
             violations.iter().all(|v| v.fix_kind != crate::rules::FixKind::RemoveBlankBefore),
             "Blank before for loop should not be removed when assignment is multiline"
         );
+    }
+
+    #[test]
+    fn test_if_body_variable_used_no_blank_needed() {
+        // Variable assigned before an if and used in the body (no else) — no blank required
+        let source = include_str!("../../tests/fixtures/multiline_spacing/if_body_variable_used_no_blank_needed.py");
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+        assert_eq!(violations.len(), 0, "Variable used in if body without else should not require blank line");
+    }
+
+    #[test]
+    fn test_if_body_variable_used_blank_removed() {
+        // Same pattern but with an erroneous blank — it should be flagged for removal
+        let source = include_str!("../../tests/fixtures/multiline_spacing/if_body_variable_used_blank_removed.py");
+        let ast = parse_python(source).unwrap();
+        let rule = MultilineSpacingRule::new(2);
+        let violations = rule.apply(source, &ast).unwrap();
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].fix_kind, crate::rules::FixKind::RemoveBlankBefore);
+        assert!(violations[0].message.contains("Guard assignment"));
     }
 
     #[test]
