@@ -33,12 +33,34 @@ struct Args {
     format: String,
 }
 
+const EXCLUDED_DIRS: &[&str] = &[
+    ".venv",
+    "venv",
+    "env",
+    ".env",
+    "__pycache__",
+    ".tox",
+    ".nox",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    "node_modules",
+    "dist",
+    "build",
+    "site-packages",
+    ".git",
+];
+
 fn collect_python_files(dir: &PathBuf, files: &mut Vec<PathBuf>) -> Result<()> {
     for entry in std::fs::read_dir(dir)
         .with_context(|| format!("Failed to read directory: {}", dir.display()))?
     {
         let path = entry?.path();
         if path.is_dir() {
+            let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if EXCLUDED_DIRS.contains(&dir_name) {
+                continue;
+            }
             collect_python_files(&path, files)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("py") {
             files.push(path);
@@ -141,6 +163,26 @@ mod tests {
         names.sort();
 
         assert_eq!(names, vec!["a.py", "c.py"]);
+    }
+
+    #[test]
+    fn test_collect_python_files_excludes_dependency_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        fs::write(root.join("app.py"), "x = 1\n").unwrap();
+
+        for excluded in &[".venv", "venv", "__pycache__", ".tox", "node_modules"] {
+            let excluded_dir = root.join(excluded);
+            fs::create_dir(&excluded_dir).unwrap();
+            fs::write(excluded_dir.join("should_be_ignored.py"), "y = 2\n").unwrap();
+        }
+
+        let mut files = Vec::new();
+        collect_python_files(&root.to_path_buf(), &mut files).unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap().to_str().unwrap(), "app.py");
     }
 
     #[test]
