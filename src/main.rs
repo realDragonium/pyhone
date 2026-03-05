@@ -95,15 +95,17 @@ fn main() -> Result<()> {
         };
 
         if !violations.is_empty() {
-            let output_lines = output_formatter.format_violations(file_path, &violations);
-            for line in output_lines {
-                println!("{}", line);
+            if args.check {
+                let output_lines = output_formatter.format_violations(file_path, &violations);
+                for line in output_lines {
+                    println!("{}", line);
+                }
             }
             total_violations += violations.len();
         }
     }
 
-    output_formatter.print_summary(total_files, total_violations);
+    output_formatter.print_summary(total_files, total_violations, args.check);
 
     if args.check && total_violations > 0 {
         std::process::exit(1);

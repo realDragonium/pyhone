@@ -68,8 +68,8 @@ impl OutputFormatter {
             .collect()
     }
 
-    pub fn print_summary(&self, total_files: usize, total_violations: usize) {
-        if self.format == OutputFormat::Human {
+    pub fn print_summary(&self, total_files: usize, total_violations: usize, check: bool) {
+        if self.format == OutputFormat::Human && check {
             println!("\n{} file(s) checked, {} violation(s) found", total_files, total_violations);
         }
     }
