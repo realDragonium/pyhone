@@ -9,6 +9,7 @@ use clap::Parser;
 use config::Config;
 use formatter::Formatter;
 use output::{OutputFormat, OutputFormatter};
+use rules::FixKind;
 use std::path::PathBuf;
 
 /// Pyhone - A Python code formatter with custom formatting rules
@@ -121,6 +122,18 @@ fn main() -> Result<()> {
                 let output_lines = output_formatter.format_violations(file_path, &violations);
                 for line in output_lines {
                     println!("{}", line);
+                }
+            } else {
+                let unfixable: Vec<_> = violations
+                    .iter()
+                    .filter(|v| v.fix_kind == FixKind::None)
+                    .cloned()
+                    .collect();
+                if !unfixable.is_empty() {
+                    let output_lines = output_formatter.format_violations(file_path, &unfixable);
+                    for line in output_lines {
+                        println!("{}", line);
+                    }
                 }
             }
             total_violations += violations.len();
