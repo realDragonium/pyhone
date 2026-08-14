@@ -1,6 +1,7 @@
 use crate::rules::{FixKind, FormattingRule, Violation};
 use anyhow::Result;
-use rustpython_parser::ast::{Expr, ExceptHandler, Mod, Ranged, Stmt};
+use ruff_python_ast::{Expr, ExceptHandler, ModModule, Stmt};
+use ruff_text_size::Ranged;
 
 #[derive(Debug)]
 pub struct MultilineSpacingRule {
@@ -12,15 +13,39 @@ impl MultilineSpacingRule {
         Self { min_lines }
     }
 
+    /// Ruff includes decorators in a definition's range; the spacing rules reason about
+    /// the `def`/`class` header itself, so decorated statements start after the last one.
+    fn definition_start_offset(&self, source: &str, stmt: &Stmt) -> usize {
+        let last_decorator_end = match stmt {
+            Stmt::FunctionDef(s) => s.decorator_list.last().map(|d| d.range().end().to_usize()),
+            Stmt::ClassDef(s) => s.decorator_list.last().map(|d| d.range().end().to_usize()),
+            _ => None,
+        };
+
+        let Some(after) = last_decorator_end else {
+            return stmt.range().start().to_usize();
+        };
+
+        let mut offset = after;
+        for line in source[after..].split_inclusive('\n') {
+            let trimmed = line.trim_start();
+            if !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with('@') {
+                return offset + (line.len() - trimmed.len());
+            }
+            offset += line.len();
+        }
+
+        after
+    }
+
     fn is_multiline(&self, source: &str, stmt: &Stmt) -> bool {
         // Imports are handled by ruff — ignore them regardless of line count
         if matches!(stmt, Stmt::Import(_) | Stmt::ImportFrom(_)) {
             return false;
         }
 
-        let range = stmt.range();
-        let start = range.start().to_usize();
-        let end = range.end().to_usize();
+        let start = self.definition_start_offset(source, stmt);
+        let end = stmt.range().end().to_usize();
 
         let stmt_source = &source[start..end];
         let line_count = stmt_source.lines().count();
@@ -33,13 +58,10 @@ impl MultilineSpacingRule {
             stmt,
             Stmt::If(_)
                 | Stmt::For(_)
-                | Stmt::AsyncFor(_)
                 | Stmt::While(_)
                 | Stmt::With(_)
-                | Stmt::AsyncWith(_)
                 | Stmt::Try(_)
                 | Stmt::FunctionDef(_)
-                | Stmt::AsyncFunctionDef(_)
                 | Stmt::ClassDef(_)
                 | Stmt::Match(_)
         )
@@ -50,9 +72,8 @@ impl MultilineSpacingRule {
             return false;
         }
 
-        let range = stmt.range();
-        let start = range.start().to_usize();
-        let end = range.end().to_usize();
+        let start = self.definition_start_offset(source, stmt);
+        let end = stmt.range().end().to_usize();
         let stmt_source = &source[start..end];
 
         // Find the first colon followed by newline (end of header)
@@ -111,7 +132,6 @@ impl MultilineSpacingRule {
     fn get_effective_start_line(&self, source: &str, stmt: &Stmt) -> usize {
         let decorator_offset = match stmt {
             Stmt::FunctionDef(s) => s.decorator_list.first().map(|d| d.range().start().to_usize()),
-            Stmt::AsyncFunctionDef(s) => s.decorator_list.first().map(|d| d.range().start().to_usize()),
             Stmt::ClassDef(s) => s.decorator_list.first().map(|d| d.range().start().to_usize()),
             _ => None,
         };
@@ -216,9 +236,8 @@ impl MultilineSpacingRule {
                 continue;
             }
 
-            let range = stmt.range();
-            let start = range.start().to_usize();
-            let end = range.end().to_usize();
+            let start = self.definition_start_offset(source, stmt);
+            let end = stmt.range().end().to_usize();
 
             let start_line = self.get_effective_start_line(source, stmt);
             // Walk back past any comments that are attached to this statement so that
@@ -233,7 +252,7 @@ impl MultilineSpacingRule {
             let prev_is_paired_setup = prev_stmt.is_some_and(|p| self.is_setup_pair(source, p, stmt));
 
             if prev_is_paired_setup && self.has_blank_line_before(source, effective_start_line) {
-                let msg = if matches!(stmt, Stmt::For(_) | Stmt::AsyncFor(_) | Stmt::While(_)) {
+                let msg = if matches!(stmt, Stmt::For(_) | Stmt::While(_)) {
                     "Loop setup assignment should not have a blank line before the loop"
                 } else {
                     "Guard assignment should not have a blank line before the if statement"
@@ -304,7 +323,7 @@ impl MultilineSpacingRule {
         }
 
         match curr {
-            Stmt::For(_) | Stmt::AsyncFor(_) | Stmt::While(_) => true,
+            Stmt::For(_) | Stmt::While(_) => true,
 
             Stmt::If(if_stmt) => {
                 let Some(var_name) = self.extract_assign_target_name(prev) else {
@@ -322,10 +341,15 @@ impl MultilineSpacingRule {
                 if if_stmt.body.len() == 1 {
                     if let Some(body_var) = self.extract_assign_target_name(&if_stmt.body[0]) {
                         if body_var == var_name {
-                            let else_ok = if_stmt.orelse.is_empty()
-                                || (if_stmt.orelse.len() == 1
-                                    && self.extract_assign_target_name(&if_stmt.orelse[0])
-                                        == Some(var_name));
+                            let else_ok = if_stmt.elif_else_clauses.is_empty()
+                                || matches!(
+                                    if_stmt.elif_else_clauses.as_slice(),
+                                    [clause]
+                                        if clause.test.is_none()
+                                            && clause.body.len() == 1
+                                            && self.extract_assign_target_name(&clause.body[0])
+                                                == Some(var_name)
+                                );
                             if else_ok {
                                 return true;
                             }
@@ -334,7 +358,7 @@ impl MultilineSpacingRule {
                 }
 
                 // Case 3: variable appears in the body (no else).
-                if_stmt.orelse.is_empty()
+                if_stmt.elif_else_clauses.is_empty()
                     && if_stmt.body.iter().any(|s| {
                         let r = s.range();
                         Self::source_contains_word(
@@ -370,17 +394,14 @@ impl MultilineSpacingRule {
     fn recurse_into_stmt(&self, source: &str, stmt: &Stmt, violations: &mut Vec<Violation>) {
         match stmt {
             Stmt::FunctionDef(s) => self.check_statement_list(source, &s.body, violations),
-            Stmt::AsyncFunctionDef(s) => self.check_statement_list(source, &s.body, violations),
             Stmt::ClassDef(s) => self.check_class_body(source, &s.body, violations),
             Stmt::If(s) => {
                 self.check_statement_list(source, &s.body, violations);
-                self.check_statement_list(source, &s.orelse, violations);
+                for clause in &s.elif_else_clauses {
+                    self.check_statement_list(source, &clause.body, violations);
+                }
             }
             Stmt::For(s) => {
-                self.check_statement_list(source, &s.body, violations);
-                self.check_statement_list(source, &s.orelse, violations);
-            }
-            Stmt::AsyncFor(s) => {
                 self.check_statement_list(source, &s.body, violations);
                 self.check_statement_list(source, &s.orelse, violations);
             }
@@ -389,7 +410,6 @@ impl MultilineSpacingRule {
                 self.check_statement_list(source, &s.orelse, violations);
             }
             Stmt::With(s) => self.check_statement_list(source, &s.body, violations),
-            Stmt::AsyncWith(s) => self.check_statement_list(source, &s.body, violations),
             Stmt::Try(s) => {
                 self.check_statement_list(source, &s.body, violations);
                 for handler in &s.handlers {
@@ -414,15 +434,10 @@ impl FormattingRule for MultilineSpacingRule {
         "multiline-spacing"
     }
 
-    fn apply(&self, source: &str, ast: &Mod) -> Result<Vec<Violation>> {
+    fn apply(&self, source: &str, ast: &ModModule) -> Result<Vec<Violation>> {
         let mut violations = Vec::new();
 
-        let statements = match ast {
-            Mod::Module(module) => &module.body,
-            Mod::Interactive(interactive) => &interactive.body,
-            Mod::Expression(_) => return Ok(violations),
-            Mod::FunctionType(_) => return Ok(violations),
-        };
+        let statements = &ast.body;
 
         self.check_statement_list(source, statements, &mut violations);
 

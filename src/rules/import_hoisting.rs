@@ -1,6 +1,7 @@
 use crate::rules::{FixKind, FormattingRule, Violation};
 use anyhow::Result;
-use rustpython_parser::ast::{Expr, ExceptHandler, Mod, Ranged, Stmt};
+use ruff_python_ast::{Expr, ExceptHandler, ModModule, Stmt};
+use ruff_text_size::Ranged;
 
 #[derive(Debug)]
 pub struct ImportHoistingRule;
@@ -12,7 +13,7 @@ impl ImportHoistingRule {
 
     /// Returns true if any except handler catches ImportError or ModuleNotFoundError,
     /// indicating this try block is the standard pattern for optional imports.
-    fn is_optional_import_block(&self, handlers: &[rustpython_parser::ast::ExceptHandler]) -> bool {
+    fn is_optional_import_block(&self, handlers: &[ExceptHandler]) -> bool {
         handlers.iter().any(|h| {
             let ExceptHandler::ExceptHandler(handler) = h;
             handler.type_.as_ref().is_some_and(|t| {
@@ -40,9 +41,6 @@ impl ImportHoistingRule {
         for stmt in statements {
             match stmt {
                 Stmt::FunctionDef(func) => {
-                    self.check_function_body(source, &func.body, &func.name, violations);
-                }
-                Stmt::AsyncFunctionDef(func) => {
                     self.check_function_body(source, &func.body, &func.name, violations);
                 }
                 Stmt::ClassDef(class) => {
@@ -116,21 +114,16 @@ impl ImportHoistingRule {
                 Stmt::FunctionDef(nested_func) => {
                     self.check_function_body(source, &nested_func.body, &nested_func.name, violations);
                 }
-                Stmt::AsyncFunctionDef(nested_func) => {
-                    self.check_function_body(source, &nested_func.body, &nested_func.name, violations);
-                }
                 Stmt::ClassDef(class) => {
                     self.check_statements_for_imports(source, &class.body, violations, &class.name);
                 }
                 Stmt::If(if_stmt) => {
                     self.check_conditional_imports(source, &if_stmt.body, func_name, violations);
-                    self.check_conditional_imports(source, &if_stmt.orelse, func_name, violations);
+                    for clause in &if_stmt.elif_else_clauses {
+                        self.check_conditional_imports(source, &clause.body, func_name, violations);
+                    }
                 }
                 Stmt::For(for_stmt) => {
-                    self.check_conditional_imports(source, &for_stmt.body, func_name, violations);
-                    self.check_conditional_imports(source, &for_stmt.orelse, func_name, violations);
-                }
-                Stmt::AsyncFor(for_stmt) => {
                     self.check_conditional_imports(source, &for_stmt.body, func_name, violations);
                     self.check_conditional_imports(source, &for_stmt.orelse, func_name, violations);
                 }
@@ -139,9 +132,6 @@ impl ImportHoistingRule {
                     self.check_conditional_imports(source, &while_stmt.orelse, func_name, violations);
                 }
                 Stmt::With(with_stmt) => {
-                    self.check_conditional_imports(source, &with_stmt.body, func_name, violations);
-                }
-                Stmt::AsyncWith(with_stmt) => {
                     self.check_conditional_imports(source, &with_stmt.body, func_name, violations);
                 }
                 Stmt::Try(try_stmt) => {
@@ -247,15 +237,10 @@ impl FormattingRule for ImportHoistingRule {
         "import-hoisting"
     }
 
-    fn apply(&self, source: &str, ast: &Mod) -> Result<Vec<Violation>> {
+    fn apply(&self, source: &str, ast: &ModModule) -> Result<Vec<Violation>> {
         let mut violations = Vec::new();
 
-        let statements = match ast {
-            Mod::Module(module) => &module.body,
-            Mod::Interactive(interactive) => &interactive.body,
-            Mod::Expression(_) => return Ok(violations),
-            Mod::FunctionType(_) => return Ok(violations),
-        };
+        let statements = &ast.body;
 
         self.check_statements_for_imports(source, statements, &mut violations, "module");
 

@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
-use rustpython_parser::ast::Mod;
+use ruff_python_ast::ModModule;
 
-pub fn parse_python(source: &str) -> Result<Mod> {
-    rustpython_parser::parse(source, rustpython_parser::Mode::Module, "<string>")
-        .context("Failed to parse Python source code")
+pub fn parse_python(source: &str) -> Result<ModModule> {
+    let parsed = ruff_python_parser::parse_module(source)
+        .context("Failed to parse Python source code")?;
+
+    Ok(parsed.into_syntax())
 }
 
 #[cfg(test)]
@@ -22,5 +24,12 @@ mod tests {
         let source = "x = \n";
         let result = parse_python(source);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_unparenthesized_except_tuple() {
+        let source = "try:\n    pass\nexcept ValueError, TypeError:\n    pass\n";
+        let result = parse_python(source);
+        assert!(result.is_ok());
     }
 }

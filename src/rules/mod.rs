@@ -1,7 +1,7 @@
 pub mod import_hoisting;
 pub mod multiline_spacing;
 
-use rustpython_parser::ast::Mod;
+use ruff_python_ast::ModModule;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FixKind {
@@ -22,7 +22,7 @@ pub struct Violation {
 
 pub trait FormattingRule {
     fn name(&self) -> &str;
-    fn apply(&self, source: &str, ast: &Mod) -> anyhow::Result<Vec<Violation>>;
+    fn apply(&self, source: &str, ast: &ModModule) -> anyhow::Result<Vec<Violation>>;
 }
 
 pub struct RuleRegistry {

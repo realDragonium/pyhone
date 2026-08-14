@@ -1,10 +1,13 @@
 [package]
 name = "pyhone"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
+rust-version = "1.95"
 
 [dependencies]
-rustpython-parser = "0.4"
+ruff_python_parser = "0.0.9"
+ruff_python_ast = "0.0.9"
+ruff_text_size = "0.0.9"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 clap = { version = "4.5", features = ["derive"] }
