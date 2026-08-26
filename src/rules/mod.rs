@@ -1,4 +1,5 @@
 pub mod import_hoisting;
+pub mod max_lines;
 pub mod multiline_spacing;
 
 use ruff_python_ast::ModModule;
@@ -47,6 +48,7 @@ impl Default for RuleRegistry {
     fn default() -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(import_hoisting::ImportHoistingRule));
+        registry.register(Box::new(max_lines::MaxLinesRule::default()));
         registry.register(Box::new(multiline_spacing::MultilineSpacingRule::default()));
         registry
     }

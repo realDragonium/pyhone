@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::parser::parse_python;
 use crate::rules::{
-    import_hoisting::ImportHoistingRule, multiline_spacing::MultilineSpacingRule, RuleRegistry,
-    Violation,
+    import_hoisting::ImportHoistingRule, max_lines::MaxLinesRule,
+    multiline_spacing::MultilineSpacingRule, RuleRegistry, Violation,
 };
 use anyhow::{Context, Result};
 use std::fs;
@@ -18,6 +18,14 @@ impl Formatter {
 
         if config.rules.import_hoisting.enabled {
             registry.register(Box::new(ImportHoistingRule::new()));
+        }
+
+        if config.rules.max_lines.enabled {
+            let rule = MaxLinesRule::new(
+                config.rules.max_lines.max_file_lines,
+                config.rules.max_lines.max_class_lines,
+            );
+            registry.register(Box::new(rule));
         }
 
         if config.rules.multiline_spacing.enabled {
@@ -57,9 +65,13 @@ impl Formatter {
         let violations = self.check_source(&source)?;
 
         if !violations.is_empty() {
+            // Rules like max-lines only report, so guard the write to avoid
+            // rewriting files that have no actual fix applied to them.
             let fixed_source = self.apply_fixes(&source, &violations)?;
-            fs::write(path.as_ref(), fixed_source)
-                .with_context(|| format!("Failed to write file: {:?}", path.as_ref()))?;
+            if fixed_source != source {
+                fs::write(path.as_ref(), fixed_source)
+                    .with_context(|| format!("Failed to write file: {:?}", path.as_ref()))?;
+            }
         }
 
         Ok(violations)
