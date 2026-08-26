@@ -7,6 +7,7 @@ A Python code formatter with custom formatting rules that complement Ruff. Pyhon
 ## Features
 
 - **Multiline Spacing Rule**: Automatically ensures multi-line statements (3+ lines by default) have blank lines before and after them for better readability
+- **Max Lines Rule**: Reports files and classes that grow past a configured line count
 - **Format Mode**: Automatically fix formatting issues
 - **Check Mode**: Report violations without modifying files (useful for CI/CD)
 - **GitHub Actions Integration**: Output violations in GitHub Actions annotation format
@@ -77,6 +78,16 @@ enabled = true
 # Minimum number of lines for a statement to be considered "multi-line"
 # Default: 2
 min_lines = 2
+
+[rules.max-lines]
+# Off by default: line limits are project specific, so opt in explicitly
+enabled = false
+
+# Maximum number of lines a file may have (default: 500)
+max_file_lines = 500
+
+# Maximum number of lines a class may have (default: 200)
+max_class_lines = 200
 ```
 
 ## Rules
@@ -109,6 +120,30 @@ def foo():
     d = 4
 
 y = 2
+```
+
+### Max Lines
+
+Reports files and classes that exceed a configured line count. Both limits are
+inclusive, so `max_file_lines = 500` flags a file at 501 lines. Class length is
+measured from the `class` header to the last line of the body, so decorators and
+trailing blank lines don't count. Nested classes are checked on their own.
+
+This rule only reports, it has no automatic fix. It is disabled by default.
+
+**Example** with `max_class_lines = 4`:
+
+```python
+class Service:      # line 1
+    a = 1
+    b = 2
+    c = 3
+    d = 4           # line 5
+```
+
+```
+app.py:
+  1:7 - Class 'Service' has 5 lines, exceeds the maximum of 4 [max-lines]
 ```
 
 ## GitHub Actions Integration

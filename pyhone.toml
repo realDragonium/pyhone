@@ -13,3 +13,17 @@ enabled = true
 # Minimum number of lines for a statement to be considered "multi-line"
 # Default: 2
 min_lines = 2
+
+[rules.max-lines]
+# Enable/disable the max-lines rule
+# Off by default: line limits are project specific, so opt in explicitly
+enabled = false
+
+# Maximum number of lines a file may have
+# Default: 500
+max_file_lines = 500
+
+# Maximum number of lines a class may have, measured from its `class` header
+# to the last line of its body (decorators are not counted)
+# Default: 200
+max_class_lines = 200
